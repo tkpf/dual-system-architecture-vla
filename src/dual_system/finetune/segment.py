@@ -82,8 +82,8 @@ def match_episode(actions: np.ndarray, demos: dict[str, np.ndarray]) -> str | No
     return best
 
 
-def replay(world, states: np.ndarray) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-    """Goal predicates and held flags per step, from the stored sim states."""
+def replay(world, states: np.ndarray, extra: list[list[str]] = ()) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Goal predicates, any extra predicates and held flags per step, from the stored sim states."""
     inner = world.env._env.env
     sim = inner.sim
     goals, held, z0 = {}, {}, {}
@@ -92,6 +92,8 @@ def replay(world, states: np.ndarray) -> tuple[dict[str, np.ndarray], dict[str, 
         sim.forward()
         for k, v in world.goal_progress().items():
             goals.setdefault(k, np.zeros(len(states), bool))[t] = v
+        for predicate in extra:
+            goals.setdefault(" ".join(predicate), np.zeros(len(states), bool))[t] = bool(inner._eval_predicate(predicate))
         for name, i in inner.obj_body_id.items():
             z = float(sim.data.body_xpos[i][2])
             z0.setdefault(name, z)
@@ -148,7 +150,8 @@ def run(out_path: Path) -> None:
                 if demo is None:
                     phases, why = None, "no matching demo"
                 else:
-                    goals, held = replay(world, data[demo]["states"][()])
+                    extra = [g["predicate"] for g in subtasks[task] if "predicate" in g]
+                    goals, held = replay(world, data[demo]["states"][()], extra)
                     phases, why = find_phases(subtasks[task], goals, held, demos[demo][:, 6] > 0)
                     if phases:
                         phases = [p for p in phases if p["start"] < len(g)]

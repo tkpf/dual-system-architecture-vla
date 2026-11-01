@@ -1,0 +1,11 @@
+# Fixed before training. Never used for training: 4 whole tasks, one per suite, none of them in the ablation scenes.
+unseen_tasks:
+  - pick up the black bowl on the ramekin and place it on the plate
+  - pick up the ketchup and place it in the basket
+  - put the cream cheese in the bowl
+  - put both the cream cheese box and the butter in the basket
+val_percent: 10
+# LIBERO init states for rollouts: selection picks the checkpoint, test is used once for the final numbers.
+init_states:
+  select: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  test: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]

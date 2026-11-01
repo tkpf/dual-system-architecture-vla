@@ -54,7 +54,7 @@ put the bowl on the stove:
 put the wine bottle on top of the cabinet:
   - {goal: wine_bottle, pick: pick up the wine bottle, place: place the wine bottle on top of the cabinet}
 open the top drawer and put the bowl inside:
-  - {goal: "open ", act: open the top drawer}
+  - {goal: "open ", predicate: [open, wooden_cabinet_1_top_region], act: open the top drawer}  # not part of the BDDL goal
   - {goal: akita_black_bowl, pick: pick up the bowl, place: place the bowl in the top drawer}
 put the bowl on top of the cabinet:
   - {goal: akita_black_bowl, pick: pick up the bowl, place: place the bowl on top of the cabinet}
