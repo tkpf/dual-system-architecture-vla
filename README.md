@@ -7,7 +7,7 @@ A two-level robot policy for the [LIBERO](https://github.com/Lifelong-Robot-Lear
 
 Both models are pretrained and neither is trained here, so the repo has no training loop and no dataset to download. Evaluation runs live in the simulator.
 
-> **Status: work in progress.** The pipeline runs end to end, but so far the dual system performs **worse** than SmolVLA alone. The ablation study is incomplete. See [Results so far](#results-so-far).
+> **Status: work in progress.** The pipeline runs end to end, but the dual system performs **worse** than SmolVLA alone. The ablation study is incomplete. See [Results so far](#results-so-far).
 
 ## Architecture
 
@@ -69,17 +69,21 @@ wsl -d Ubuntu-22.04 -- bash scripts/wsl_test.sh python -m pytest -q tests
 Models and tasks download on first use. All commands below assume the Colab setup.
 
 ```bash
-# Start the grid in the background. Finished cells are skipped on restart.
-!python -m infra start w0 "python -m dual_system.eval.grid free_atomic_test --res /content/res --stop-after-min 40"
+# Every run gets its own folder, /content/runs/YYYYMMDD-HHMM (UTC), so the name that sorts last is the most recent.
+RUN = !python -m infra newrun
+RUN = RUN[0]
+
+# Start the grid in the background. Finished cells are skipped when the same folder is reused after a restart.
+!python -m infra start w0 "python -m dual_system.eval.grid free_atomic_test --res {RUN} --stop-after-min 40"
 !python -m infra status          # one line of JSON: jobs, finished episodes, GPU and RAM
 
 # Tables, sub-goal CSV and side-by-side videos
-!python -m dual_system.eval.report /content/res
-!python -m dual_system.eval.lookup /content/res --task 0 --state B
-!python -m dual_system.eval.side_by_side /content/res      # writes /content/res/videos
+!python -m dual_system.eval.report {RUN}
+!python -m dual_system.eval.lookup {RUN} --task 0 --state B
+!python -m dual_system.eval.side_by_side {RUN}             # writes {RUN}/videos
 
 # Does System 1 follow a command? No System 2, compared with a gibberish control
-!python -m infra start probe "python -m dual_system.eval.command_probe --res /content/probe"
+!python -m infra start probe "python -m dual_system.eval.command_probe --res {RUN}/probe"
 ```
 
 | Config | Purpose |
@@ -96,14 +100,16 @@ Each cell folder holds `episodes.jsonl` (outcome), `subgoals.jsonl` (each comman
 
 ## Results so far
 
-From `free_atomic_test` at commit `c7452e6`. The run covered **27 of the 72 planned episodes** before it stopped, so these numbers are a pilot. `libero_goal` used tasks 0, 1 and 4; `libero_10` used tasks 0 and 2. All episodes come from the first of the two planned seeds.
+From the full `free_atomic_test` grid at commit `c7452e6`: 72 episodes over `libero_goal` tasks 0, 1 and 4 and `libero_10` tasks 0, 2 and 3, with 2 seeds per cell.
 
 | Start state | SmolVLA alone | Dual system |
 |---|---|---|
-| A (stored start) | 5/5 | 1/5 |
-| C (about 10 cm shift) | 3/5 | 1/4 |
-| B (about 19 cm shift) | 0/4 | 0/4 |
-| **Total** | **8/14** | **2/13** |
+| A (stored start) | 12/12 | 2/12 |
+| C (about 10 cm shift) | 5/12 | 2/12 |
+| B (about 19 cm shift) | 2/12 | 0/12 |
+| **Total** | **19/36** | **4/36** |
+
+Over `libero_goal`, SmolVLA alone reached 12/18 and the dual system 4/18. Over `libero_10`, the figures are 7/18 and 0/18. Of the 36 paired episodes, 15 succeeded only with SmolVLA alone and none only with the dual system.
 
 The dual system reduces success on these tasks. Nothing here shows that System 2 helps. Two separate causes show up:
 
@@ -120,9 +126,12 @@ The dual system reduces success on these tasks. Nothing here shows that System 2
 
 A gibberish prompt can produce the same behaviour as a real command, so the scene drives much of what SmolVLA does. "turn on the stove" did succeed in an earlier single run in the scene where it is a benchmark task (`libero_goal` task 7), but it fails in the `libero_10` scene. This matches LIBERO-Plus and LIBERO-PRO, which report that VLAs trained on LIBERO largely ignore language.
 
-**System 2 rarely advances.** Across the 13 dual episodes, only 2 commands were judged done, and both were the single-step "open the middle drawer". **No second atomic command was ever issued**, so a "place" step never ran. In the "pick up the bowl" episodes, the gripper stays closed on the object from around step 150 in some cases, but the check keeps answering "still running". The 300-step timeout then coincides with the 300-step episode limit of `libero_goal`.
+**System 2's progress check is unreliable, in both directions.**
 
-The second cause means that this run does not isolate System 1's handling of atomic commands. Running the same atomic commands on a fixed schedule, with no VLM, would separate the two.
+- *It misses finished steps.* "pick up the bowl" and "turn on the stove" were never judged done, so those episodes never reached their second command. In the "pick up the bowl" episodes, the gripper often closes, but the check keeps answering "still running". The 300-step timeout then coincides with the 300-step episode limit of `libero_goal`.
+- *It accepts unfinished steps.* 7 of System 2's 11 success verdicts came while the LIBERO goal was false, and each one ended the episode. All six `libero_10` task 3 episodes ran "open the drawer", "place the bowl in the drawer" and "close the drawer" to "done", and none of them succeeded.
+
+Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in that one task. So this run does not isolate System 1's handling of atomic commands. Running the same atomic commands on a fixed schedule, with no VLM, separates the two (`--kinds schedule` in the command probe).
 
 ## Challenge questions
 
@@ -136,7 +145,6 @@ The second cause means that this run does not isolate System 1's handling of ato
 
 - Oracle, frozen and shuffled conditions, and mid-episode perturbations
 - A System 1 that follows atomic commands. SmolVLA is expected to be replaced, without retraining
-- Full 72-episode grid, with confidence intervals
 - Rollout videos in the repo. They are generated by `side_by_side` but not committed
 - The research report (PDF, at most 3 pages)
 

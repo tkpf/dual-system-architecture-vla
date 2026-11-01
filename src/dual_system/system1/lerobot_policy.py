@@ -73,6 +73,8 @@ class LeRobotSystem1(System1):
         cfg.pretrained_path = path
         cfg.n_action_steps = n_action_steps
         cfg.device = device
+        if hasattr(cfg, "compile_model"):  # the pi checkpoints enable max-autotune, which stalls the first episodes on a T4
+            cfg.compile_model = False
         # Checkpoints differ in their camera names: rename only for those that expect camera1 / camera2.
         rename = RENAME_MAP if set(RENAME_MAP.values()) <= set(cfg.input_features) else {}
         self.policy = make_policy(cfg=cfg, env_cfg=env_cfg, rename_map=rename)

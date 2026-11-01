@@ -127,6 +127,10 @@ Episodes end on success, so a successful episode has far fewer than the 280 allo
 
 ## 6. pi0 / pi0.5
 
+Save every run under its own `YYYYMMDD-HHMM` folder (`python -m infra newrun`, see the `colab-startup` skill).
+
+The checkpoints set `compile_model: true` with `max-autotune`, which stalled the first episode for over 10 minutes on the T4. `LeRobotSystem1` turns compilation off; a stock `lerobot-eval` run needs `--policy.compile_model=false`.
+
 ### 6a. Host OOM (exit code 137) and the launcher
 
 Stock `lerobot-eval` is killed with exit code 137 and no traceback right after "Making policy". The pi0/pi0.5 backbone is built in fp32 on the CPU, then a 7.0 to 7.5 GB state dict is loaded, which exceeds the 12 GB host RAM. Building the backbone in bf16 on the CPU was not enough. Building it directly on the GPU worked: host RAM stayed at about 3 GB. Use this launcher (same CLI as `lerobot-eval`):

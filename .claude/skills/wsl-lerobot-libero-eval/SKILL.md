@@ -3,6 +3,8 @@ name: wsl-lerobot-libero-eval
 description: Run LeRobot's lerobot-eval on LIBERO with the pretrained SmolVLA policy locally in WSL2 Ubuntu 22.04 (CPU only, no NVIDIA GPU), in a dedicated conda env. Use when setting up or debugging the local evaluation pipeline, when an episode is slow, or when MuJoCo rendering, conda, or the WSL command line misbehave.
 ---
 
+Save every run under its own `YYYYMMDD-HHMM` folder in `data/`, for example `data/20261101-2036`, so the name that sorts last is the most recent.
+
 # LeRobot LIBERO evaluation in WSL (CPU)
 
 Machine (checked 2026-10-31): Surface Laptop Studio (i5-11300H, 4 cores / 8 threads, Intel Iris Xe iGPU, **no NVIDIA GPU**, see `docs/PREREQUISITES.md`), WSL2 Ubuntu 22.04.5, about 7.8 GB RAM visible to WSL (default limit; 16 GB on Windows), no `sudo` without a password. For the Colab T4 variant see the `colab-lerobot-libero-eval` skill.
