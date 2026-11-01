@@ -45,6 +45,14 @@ class World(ABC):
         pass
 
 
+def _finger_side(geom: str | None) -> str | None:
+    """Which finger a geom belongs to, from robosuite's names such as gripper0_finger1_pad_collision."""
+    for side in ("finger1", "finger2"):
+        if geom and side in geom:
+            return side
+    return None
+
+
 class LiberoWorld(World):
     def __init__(self, suite: str, task_id: int, is_libero_plus: bool = False, max_steps: int | None = None):
         from lerobot.envs.libero import LiberoEnv, _get_suite, get_libero_dummy_action
@@ -121,6 +129,19 @@ class LiberoWorld(World):
             return {" ".join(map(str, g)): bool(inner._eval_predicate(g)) for g in inner.parsed_problem["goal_state"]}
         except Exception:  # not all LIBERO forks expose this; ground truth then falls back to env success
             return None
+
+    def gripped(self, name: str) -> bool:
+        """Both gripper fingers touch the named object, or a body attached to it."""
+        inner = self.env._env.env
+        sim = inner.sim
+        root = sim.model.body_rootid[inner.obj_body_id[name]]
+        fingers = set()
+        for c in sim.data.contact[:sim.data.ncon]:
+            for mine, other in ((c.geom1, c.geom2), (c.geom2, c.geom1)):
+                finger = _finger_side(sim.model.geom_id2name(mine))
+                if finger and sim.model.body_rootid[sim.model.geom_bodyid[other]] == root:
+                    fingers.add(finger)
+        return len(fingers) == 2
 
     def reset_info(self):
         return self._reset_info
