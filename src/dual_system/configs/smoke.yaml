@@ -1,0 +1,10 @@
+# Short pipeline check with real SmolVLA and the simulator, no VLM. Runs on CPU in WSL.
+run: smoke
+max_steps: 30
+suites:
+  - {name: libero_10, tasks: [2]}
+robot_states:
+  B: {init_state_id: 0, joint_offset_deg: [25, -20, 0, -25, 0, 25, 0]}
+conditions: [passthrough, full_scripted]
+system1: {type: smolvla, path: lerobot/smolvla_libero, n_action_steps: 10}
+base_seed: 1000

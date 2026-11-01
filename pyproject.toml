@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dual-system"
+version = "0.0.1"
+description = "Dual-system (System 2 / System 1) VLA experiments on LIBERO with LeRobot"
+requires-python = ">=3.10"
+# lerobot[libero,smolvla]==0.6.x is installed separately (see .claude/skills/colab-startup), not pinned here.
+dependencies = ["numpy", "pandas", "pillow", "pyyaml", "imageio[ffmpeg]"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+single_system = ["data/*.json"]
+dual_system = ["configs/*.yaml", "configs/conditions/*.yaml", "knowledge/profiles/*.yaml"]

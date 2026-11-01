@@ -1,0 +1,4 @@
+# Single system: the instruction goes to System 1 unchanged, no System 2 calls after the start.
+system2: {type: passthrough}
+triggers: {}
+interface: {type: identity}

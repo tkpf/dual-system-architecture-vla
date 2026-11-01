@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "colab-mcp": {
+      "command": "C:/Users/TillK/.local/bin/colab-mcp.exe"
+    }
+  }
+}

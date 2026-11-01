@@ -1,0 +1,14 @@
+# First dual-system test. Cells run in this order, so stopping early still leaves complete single/dual pairs.
+run: first_test
+suites:
+  - {name: libero_goal, tasks: [0, 1, 4]}
+  - {name: libero_10, tasks: [0, 2, 3]}
+  # LIBERO-Plus needs its own venv; task ids are chosen after reading the installed fork:
+  # - {name: plus_libero_goal, suite: libero_goal, is_libero_plus: true, tasks: []}
+robot_states:
+  A: {init_state_id: 0}
+  # About 19 cm gripper shift, no contacts, no drift; checked with scripts/tune_robot_state.py.
+  B: {init_state_id: 0, joint_offset_deg: [25, -20, 0, -25, 0, 25, 0]}
+conditions: [passthrough, full]
+system1: {type: smolvla, path: lerobot/smolvla_libero, n_action_steps: 10}
+base_seed: 1000

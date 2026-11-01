@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.egg-info/
+data/
+*/papers/
+*.zip
+.pytest_cache/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+scripts/.start_frames_tmp.jpg
+*.lock
+*.ps1
+
+src/single_system/
+TODO.md
