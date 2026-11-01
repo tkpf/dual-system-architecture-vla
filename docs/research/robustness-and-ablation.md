@@ -44,6 +44,8 @@ Idea: perturb the initial state more strongly than LIBERO's own variation and us
 
 ## Ablation plan
 
+Results so far are in [EXPERIMENTS.md](../EXPERIMENTS.md). Only Full and No System 2 have been run as conditions. The fixed schedule in the command probe acts as a rough oracle for the command sequence.
+
 Maps to the three required questions in [CHALLENGE.md](../../CHALLENGE.md).
 
 ### Q1. Counterfactual: is System 2 responsible?

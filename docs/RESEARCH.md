@@ -14,6 +14,7 @@ All PDFs are in [papers/](papers/), named `<arxiv-id>-<short-name>.pdf`. Summari
 | [research/libero-and-lerobot.md](research/libero-and-lerobot.md) | LIBERO suites, LeRobot datasets, install and eval commands, practical notes for this machine |
 | [research/lerobot-pipeline.md](research/lerobot-pipeline.md) | How `lerobot-eval` works: rollout loop, OSC controller, action queues, async, LIBERO pre/post steps, how to plug in a dual-system policy |
 | [research/robustness-and-ablation.md](research/robustness-and-ablation.md) | LIBERO-Plus and LIBERO-PRO, plus a concrete ablation plan answering the three challenge questions |
+| [EXPERIMENTS.md](EXPERIMENTS.md) | What this project has measured so far, with folders, commits and episode counts |
 
 ## Paper list
 

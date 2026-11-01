@@ -3,11 +3,11 @@
 A two-level robot policy for the [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) manipulation benchmark, built on [LeRobot](https://github.com/huggingface/lerobot). The challenge brief is in [CHALLENGE.md](CHALLENGE.md).
 
 - **System 2** (slow): a frozen Qwen3-VL-2B vision-language model inside a rule-based supervisor. It splits the instruction into atomic commands and judges progress from camera images.
-- **System 1** (fast): a frozen SmolVLA policy that turns the current command and the observation into robot actions.
+- **System 1** (fast): a frozen pi0.5 policy (`lerobot/pi05_libero_finetuned_v044`) that turns the current command and the observation into robot actions. SmolVLA is still supported and was the first System 1.
 
 Both models are pretrained and neither is trained here, so the repo has no training loop and no dataset to download. Evaluation runs live in the simulator.
 
-> **Status: work in progress.** The pipeline runs end to end, but the dual system performs **worse** than SmolVLA alone. The ablation study is incomplete. See [Results so far](#results-so-far).
+> **Status: work in progress.** The pipeline runs end to end, but every dual variant so far performs **worse** overall than System 1 alone. The ablation study is incomplete. See [Results so far](#results-so-far).
 
 ## Architecture
 
@@ -21,19 +21,20 @@ Both models are pretrained and neither is trained here, so the repo has no train
                       │
                       │ one English sentence
                       ▼
- camera + state ─► System 1: SmolVLA ──► 7-D action at every sim step ──► LIBERO
+ camera + state ─► System 1: pi0.5 ──► 7-D action at every sim step ──► LIBERO
 ```
 
-**Interface.** System 2 passes plain text, written into the prompt that SmolVLA reads. When the command changes, SmolVLA's queued actions are discarded. Text is readable in videos and easy to freeze, swap or corrupt for an ablation.
+**Interface.** System 2 passes plain text, written into the prompt that System 1 reads. When the command changes, System 1's queued actions are discarded. Text is readable in videos and easy to freeze, swap or corrupt for an ablation.
 
-**When System 2 runs.** Triggers call it every 20 steps, and also on a gripper toggle, when the robot stops moving, on an empty grasp, and after 300 steps on one command. They are set in [full_free_atomic.yaml](src/dual_system/configs/conditions/full_free_atomic.yaml).
+**When System 2 runs.** Triggers call it every 20 steps, and also on a gripper toggle, when the robot stops moving, on an empty grasp, and after a time limit on one command (300 steps, or 150 in the phase-aware condition). They are set per condition, for example in [full_free_atomic.yaml](src/dual_system/configs/conditions/full_free_atomic.yaml).
 
 **Swappable parts.** The supervisor logic in [supervisor.py](src/dual_system/system2/supervisor.py) is deterministic. All perception goes through a `Reasoner` ([reasoners.py](src/dual_system/system2/reasoners.py)), so a different VLM changes the reasoning quality and nothing else. System 1 sits behind a small interface ([base.py](src/dual_system/system1/base.py)).
 
 | Condition | What it does |
 |---|---|
-| `passthrough` | No System 2: the full instruction goes to SmolVLA unchanged. This is the baseline |
-| `full_free_atomic` | System 2 writes its own atomic commands. Default dual condition |
+| `passthrough` | No System 2: the full instruction goes to System 1 unchanged. This is the baseline |
+| `full_free_atomic` | System 2 writes its own atomic commands and answers a one-letter progress check |
+| `full_phase_atomic` | System 2 knows all phases, its position and what a finished phase looks like, reasons briefly, and ends with the current subtask |
 | `full` | System 2 chooses commands from the candidate list in the `closed_set` profile |
 | `full_scripted` | Fixed answers instead of a VLM, for pipeline checks |
 
@@ -50,6 +51,14 @@ Set the runtime to T4 GPU, then run these in notebook cells:
 !python -m infra log install                               # the install is finished when this shows the lerobot-eval path
 !python -m infra egl                                       # NVIDIA EGL libraries for rendering
 !python -m infra check                                     # must print "Tesla T4"
+```
+
+pi0 and pi0.5 use a gated tokenizer. Accept the licence at [google/paligemma-3b-pt-224](https://huggingface.co/google/paligemma-3b-pt-224), add a read token as the Colab secret `HF_TOKEN`, and set it in the notebook before starting jobs:
+
+```python
+import os
+from google.colab import userdata
+os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
 ```
 
 Results were produced with LeRobot 0.6.1, transformers 5.5.4, torch 2.11.0, robosuite 1.4.0 and MuJoCo 3.8.1. The installer does not pin these versions, so a newer LeRobot may behave differently. Each run writes its exact versions and git commit to `run_info_w<N>.json`.
@@ -74,7 +83,7 @@ RUN = !python -m infra newrun
 RUN = RUN[0]
 
 # Start the grid in the background. Finished cells are skipped when the same folder is reused after a restart.
-!python -m infra start w0 "python -m dual_system.eval.grid free_atomic_test --res {RUN} --stop-after-min 40"
+!python -m infra start w0 "python -m dual_system.eval.grid pi05_atomic_test --res {RUN} --stop-after-min 40"
 !python -m infra status          # one line of JSON: jobs, finished episodes, GPU and RAM
 
 # Tables, sub-goal CSV and side-by-side videos
@@ -84,11 +93,25 @@ RUN = RUN[0]
 
 # Does System 1 follow a command? No System 2, compared with a gibberish control
 !python -m infra start probe "python -m dual_system.eval.command_probe --res {RUN}/probe"
+
+# Atomic commands at fixed steps, recorded, for two models, stitched side by side
+!python -m dual_system.eval.command_probe --type pi05 --path lerobot/pi05_libero_finetuned_v044 --kinds schedule --only-first --seeds 2 --states C B --video --res {RUN}/pi05
+!python -m dual_system.eval.command_probe --type smolvla --path lerobot/smolvla_libero_plus --kinds schedule --only-first --seeds 2 --states C B --video --res {RUN}/smolvla
+!python -m dual_system.eval.compare_probe {RUN}/pi05 {RUN}/smolvla --out {RUN}/side_by_side
+
+# Can a VLM see what System 2 has to judge? Yes/no questions scored against simulator truth, no robot control
+!python -m dual_system.eval.perception collect --res {RUN}
+!python -m dual_system.eval.perception run qwen2b --res {RUN}   # also smolvlm, qwen4b, qwen8b (8b needs bitsandbytes)
+!python -m dual_system.eval.perception report --res {RUN}
 ```
+
+Downloaded results land in `data/YYYYMMDD-HHMM`, using the local download time, so the name that sorts last is the most recent.
 
 | Config | Purpose |
 |---|---|
-| `free_atomic_test` | Default. `passthrough` vs `full_free_atomic`, 6 tasks, 3 robot start states, 2 seeds: 72 episodes |
+| `pi05_atomic_test` | pi0.5, `passthrough` vs `full_free_atomic`, 3 tasks, shifted starts C and B, 2 seeds: 24 episodes |
+| `pi05_phase_test` | pi0.5, `passthrough` vs `full_phase_atomic`, 3 tasks, state A, 2 seeds, 300-step limit: 12 episodes |
+| `free_atomic_test` | SmolVLA, `passthrough` vs `full_free_atomic`, 6 tasks, 3 robot start states, 2 seeds: 72 episodes |
 | `profiles_test` | Compares the `closed_set` and `free_atomic` command profiles |
 | `libero_plus_checkpoint` | SmolVLA alone, with the checkpoint trained on `lerobot/libero_plus` |
 | `first_test` | The first dual-system run, kept for reference |
@@ -99,6 +122,19 @@ Robot start states: `A` is the stored LIBERO start. `C` and `B` add a joint offs
 Each cell folder holds `episodes.jsonl` (outcome), `subgoals.jsonl` (each command and how it ended), `trace.jsonl` (every System 2 call with its raw answer), `steps.jsonl`, keyframes and `episode.mp4`.
 
 ## Results so far
+
+Full run details are in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+
+| Comparison | System 1 alone, or first model | Dual, or second model |
+|---|---|---|
+| pi0.5 vs SmolVLA on a fixed atomic schedule, shifted starts | pi0.5 5/12 | SmolVLA 0/12 |
+| pi0.5 alone vs dual (`full_free_atomic`), shifted starts | 8/12 | 3/12 |
+| pi0.5 alone vs dual (`full_phase_atomic`), stored start, 300 steps | 6/6 | 2/6 |
+| SmolVLA alone vs dual (`full_free_atomic`), 3 start states | 19/36 | 4/36 |
+
+pi0.5 is the stronger System 1, but no dual variant has beaten System 1 alone overall. The phase-aware System 2 removed false successes but never declared a step finished, in 76 checks. Comparing its answers with camera frames shows why: Qwen 2B calls a glowing red burner dark and a held bowl on the table. An offline perception benchmark across VLMs is in progress.
+
+### SmolVLA in detail
 
 From the full `free_atomic_test` grid at commit `c7452e6`: 72 episodes over `libero_goal` tasks 0, 1 and 4 and `libero_10` tasks 0, 2 and 3, with 2 seeds per cell.
 
@@ -137,14 +173,15 @@ Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in 
 
 | Question | Current answer |
 |---|---|
-| **Counterfactual** | Partial. Only `passthrough` vs `full*` has been run, and the dual system is worse. Frozen, shuffled and oracle conditions are not implemented |
+| **Counterfactual** | Partial. Only `passthrough` vs `full*` has been run, and the dual system is worse overall. The fixed schedule in the command probe is close to an oracle for the command sequence. Frozen and shuffled conditions are not implemented |
 | **Error recovery** | Not answered. Offset start states exist, but mid-episode perturbations are not implemented. Recovery commands ("open the gripper", "move back to the home position") did not noticeably change the robot's behaviour in the probe |
-| **Bottleneck** | Preliminary: both systems. System 1 follows language weakly, and System 2's progress check rarely closes a step. An oracle condition is needed to measure each one's share |
+| **Bottleneck** | Preliminary: mainly System 2's perception. With pi0.5, System 1 reaches goals alone from the stored start, while Qwen 2B misreads the scene. System 1 also ignores command boundaries, so its share is not yet measured |
 
 ## Deliverables still open
 
 - Oracle, frozen and shuffled conditions, and mid-episode perturbations
-- A System 1 that follows atomic commands. SmolVLA is expected to be replaced, without retraining
+- A System 2 that can perceive progress. The perception benchmark decides whether a larger VLM does it
+- A gibberish control for pi0.5, to show whether it follows commands
 - Rollout videos in the repo. They are generated by `side_by_side` but not committed
 - The research report (PDF, at most 3 pages)
 
@@ -152,16 +189,16 @@ Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in 
 
 ```text
 src/dual_system/
-  system1/      System 1 interface and SmolVLA wrapper
-  system2/      supervisor, reasoners (Qwen, scripted), passthrough
-  knowledge/    command profiles: free_atomic, closed_set
+  system1/      System 1 interface and LeRobot wrapper (SmolVLA, pi0, pi0.5)
+  system2/      supervisor, phase supervisor, reasoners (Qwen, scripted), passthrough
+  knowledge/    command profiles: free_atomic, closed_set, phase_atomic
   configs/      experiment grids and conditions
-  eval/         grid runner, report, lookup, side-by-side videos, command probe
+  eval/         grid runner, report, lookup, side-by-side videos, command probe, model comparison videos, perception benchmark
   env.py, rollout.py, triggers.py, robot_states.py, tracing.py, types.py
 src/infra/      Colab install, EGL rendering, background jobs, result sync
 scripts/        WSL test runner, robot start-state tuning
-tests/          supervisor, trigger and rollout tests
-docs/           research notes (PDFs of the papers are not committed)
+tests/          supervisor, trigger, rollout and perception tests
+docs/           experiment log and research notes (PDFs of the papers are not committed)
 ```
 
-Start with [docs/RESEARCH.md](docs/RESEARCH.md) for the literature behind the design and [docs/PREREQUISITES.md](docs/PREREQUISITES.md) for the hardware constraints.
+Start with [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) for what was measured, [docs/RESEARCH.md](docs/RESEARCH.md) for the literature behind the design and [docs/PREREQUISITES.md](docs/PREREQUISITES.md) for the hardware constraints.
