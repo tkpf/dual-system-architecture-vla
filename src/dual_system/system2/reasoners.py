@@ -50,15 +50,21 @@ Rules for commands:
 {rules}
 {candidates}{completed}Answer with JSON only: {{"steps": ["...", "..."]}}"""
 
-CHECK_V1 = """You supervise a robot arm. The first image is the scene camera, the second the wrist camera.
-Overall instruction: "{instruction}"
-Current command: "{step}"
-Signals: {signals}
-Look at the images. Is the current command finished, still in progress, or has it failed (for example the object was dropped or missed)? Is the overall instruction complete?
-Answer with JSON only: {{"step": "running" or "done" or "failed", "task": "running" or "success" or "failure"}}"""
+# One letter: a JSON form with step and task fields answered task=success on every frame of a test episode, including
+# the first. This form said "still running" until the result was visible (one episode, so not a general result).
+CHECK_V2 = """You watch a robot arm. Command: "{step}".{signals}
+Choose exactly one: A = the command is still being carried out or has not started. B = the result of the command is clearly visible and the robot has finished. C = it clearly failed, e.g. an object was dropped.
+Answer with one letter."""
+
+CHECK_LETTERS = {"A": "running", "B": "done", "C": "failed"}
+
+
+def parse_check(text: str) -> dict | None:
+    m = re.match(r"\W*([ABC])\b", text)
+    return {"step": CHECK_LETTERS[m.group(1)]} if m else None
+
 
 SIGNALS = {
-    "periodic": "regular check",
     "gripper_toggle": "the gripper just opened or closed",
     "quiescence": "the robot stopped moving",
     "empty_grasp": "the gripper closed with nothing between the fingers",
@@ -114,11 +120,11 @@ class QwenReasoner(Reasoner):
 
         self.torch = torch
         self.device, self.image_size = device, image_size
-        self.max_tokens_check, self.max_tokens_plan = max_tokens_check, max_tokens_plan
+        self.max_tokens_check, self.max_tokens_plan, self.max_tokens_letter = max_tokens_check, max_tokens_plan, 3
         self.processor = AutoProcessor.from_pretrained(model)
         self.model = AutoModelForImageTextToText.from_pretrained(model, dtype=getattr(torch, dtype)).to(device).eval()
 
-    def _generate(self, prompt: str, images: list[np.ndarray], max_new: int, prompt_id: str) -> Answer:
+    def _generate(self, prompt: str, images: list[np.ndarray], max_new: int, prompt_id: str, parse=parse_json) -> Answer:
         from PIL import Image
 
         content = [{"type": "image", "image": Image.fromarray(i).resize((self.image_size, self.image_size))} for i in images]
@@ -130,7 +136,7 @@ class QwenReasoner(Reasoner):
         with self.torch.inference_mode():
             out = self.model.generate(**inputs, max_new_tokens=max_new, do_sample=False)
         raw = self.processor.batch_decode(out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0].strip()
-        return Answer(parse_json(raw), raw, prompt_id, time.perf_counter() - t0)
+        return Answer(parse(raw), raw, prompt_id, time.perf_counter() - t0)
 
     def validate(self, instruction, images):
         return self._generate(VALIDATE_V1.format(instruction=instruction), images, self.max_tokens_check, "validate_v1")
@@ -142,9 +148,9 @@ class QwenReasoner(Reasoner):
         return self._generate(prompt, images, self.max_tokens_plan, "plan_v1")
 
     def check(self, instruction, step, reasons, images):
-        signals = "; ".join(SIGNALS.get(r, r) for r in reasons)
-        prompt = CHECK_V1.format(instruction=instruction, step=step, signals=signals)
-        return self._generate(prompt, images, self.max_tokens_check, "check_v1")
+        signals = "; ".join(SIGNALS[r] for r in reasons if r in SIGNALS)
+        prompt = CHECK_V2.format(step=step, signals=f"\nSignal: {signals}." if signals else "")
+        return self._generate(prompt, images[:1], self.max_tokens_letter, "check_v2", parse_check)  # scene camera only, as tested
 
 
 def build_reasoner(cfg: dict, shared: dict | None = None) -> Reasoner:

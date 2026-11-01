@@ -86,7 +86,7 @@ class Supervisor(System2):
 
         self.done_count = self.done_count + 1 if step == "done" else 0
         self.failed_count = self.failed_count + 1 if step == "failed" else 0
-        self.success_count = self.success_count + 1 if task == "success" else 0
+        self.success_count = self.success_count + 1 if task == "success" and step == "done" else 0  # both must agree
         self.failure_count = self.failure_count + 1 if task == "failure" else 0
         can_end = self.judges and s.obs.t >= self.min_verdict_step
 

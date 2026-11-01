@@ -74,6 +74,23 @@ def verdict_quality(df: pd.DataFrame) -> dict:
                 no_verdict=int(df[df.condition != "passthrough"].verdict.isna().sum()))
 
 
+def false_successes(res: str | Path) -> pd.DataFrame:
+    """Episodes where System 2 said success while the LIBERO condition was false: the last call's state and frames."""
+    rows = []
+    for f in sorted(Path(res).glob("*/trace.jsonl")):
+        events = [json.loads(line) for line in open(f, encoding="utf-8")]
+        end = next((e for e in events if e["type"] == "episode_end"), None)
+        if end is None or end["verdict"] != "success" or end["success"]:
+            continue
+        call = [e for e in events if e["type"] == "s2_call"][-1]
+        rows.append(dict(cell=end["cell"], instruction=end["instruction"], step=end["n_steps"], command=call["active"],
+                         goal_progress=json.dumps(call["goal_progress"]), raw=call["raw"],
+                         keyframe=f"{end['cell']}/{call['keyframes'].get('agent', '')}",
+                         wrist_keyframe=f"{end['cell']}/{call['keyframes'].get('wrist', '')}",
+                         video=f"{end['cell']}/episode.mp4"))
+    return pd.DataFrame(rows)
+
+
 def main(res: str) -> None:
     df = load_episodes(res)
     if df.empty:
@@ -88,6 +105,11 @@ def main(res: str) -> None:
           f"both: {int((s & d).sum())}; neither: {int((~s & ~d).sum())}")
     print("verdicts:", verdict_quality(df))
     print("subgoals:", write_subgoals_csv(res))
+    fs = false_successes(res)
+    print(f"System 2 said success, LIBERO false: {len(fs)}")
+    if not fs.empty:
+        fs.to_csv(Path(res) / "false_success.csv", index=False, quoting=csv.QUOTE_NONNUMERIC)
+        print(fs[["cell", "step", "command", "goal_progress", "keyframe"]].to_string(index=False))
 
 
 if __name__ == "__main__":

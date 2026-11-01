@@ -1,7 +1,7 @@
 import numpy as np
 
 from dual_system.knowledge import StaticRetriever, snap_to_candidates
-from dual_system.system2.reasoners import Answer, ScriptedReasoner, parse_json
+from dual_system.system2.reasoners import Answer, ScriptedReasoner, parse_check, parse_json
 from dual_system.system2.supervisor import Supervisor
 from dual_system.types import Observation, S2Input, TriggerEvent, Verdict
 
@@ -140,6 +140,19 @@ def test_unusable_plan_falls_back_to_instruction():
     assert s.decide(inp(0, ["start"])).command.text == INSTR
 
 
+def test_task_success_alone_cannot_end_the_episode():
+    s = sup([{"step": "running", "task": "success"}])
+    s.decide(inp(0, ["start"]))
+    assert all(s.decide(inp(t)).verdict is None for t in range(60, 400, 20))
+
+
+def test_parse_check_letters():
+    assert parse_check("A") == {"step": "running"}
+    assert parse_check(" B.") == {"step": "done"}
+    assert parse_check("C = it failed") == {"step": "failed"}
+    assert parse_check("Absolutely") is None and parse_check("") is None
+
+
 def test_parse_json_handles_code_fence():
     assert parse_json('```json\n{"step": "done"}\n```') == {"step": "done"}
     assert parse_json("{broken") is None
@@ -155,6 +168,6 @@ def test_prompts_hold_no_vocabulary():
     """Command words must come from the profile, so semantics can be swapped without code changes."""
     from dual_system.system2 import reasoners
 
-    for tpl in (reasoners.VALIDATE_V1, reasoners.PLAN_V1, reasoners.CHECK_V1):
+    for tpl in (reasoners.VALIDATE_V1, reasoners.PLAN_V1, reasoners.CHECK_V2):
         for word in ("stove", "bowl", "drawer", "move back", "open the gripper"):
             assert word not in tpl

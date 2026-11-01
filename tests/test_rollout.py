@@ -93,6 +93,9 @@ def test_false_done_scores_as_failure(tmp_path):
     win = {"step": "done", "task": "success"}
     r, _ = run(tmp_path, "full", full([win]), FakeWorld(success_at=None))
     assert r.verdict == "success" and not r.success
+    fs = report.false_successes(tmp_path)
+    assert list(fs.cell) == ["libero_10__t0__A__full"] and fs.step[0] == r.n_steps  # System 2 still ended the episode
+    assert (tmp_path / fs.keyframe[0]).exists()
 
 
 def test_time_limit_scores_the_predicate(tmp_path):
