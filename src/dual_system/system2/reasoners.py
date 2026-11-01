@@ -4,6 +4,7 @@ Answer.parsed is None when the output could not be used; the Supervisor then kee
 """
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import time
@@ -64,6 +65,37 @@ def parse_check(text: str) -> dict | None:
     return {"step": CHECK_LETTERS[m.group(1)]} if m else None
 
 
+PHASE_CHECK_V1 = """You watch a robot arm. The first image is the scene camera, the second the wrist camera.
+Task: "{instruction}"
+The task is split into {n} phases:
+{phases}
+The robot is in phase {k} of {n}: "{step}".
+Phase {k} is finished only when {definition}{signals}
+First reason in at most two short sentences: compare what the images show with that condition. Then end with one final line in exactly this form:
+CURRENT SUBTASK: <number>. <text of that phase>
+Give phase {k} while its condition is not met and phase {next_k} once it is. If an earlier phase was undone, e.g. an object was dropped, give that phase.{last}"""
+
+
+def parse_phase(text: str, steps: list[str], idx: int) -> dict | None:
+    """The last CURRENT SUBTASK line, as an index into steps; len(steps) means all phases are finished. None if unusable."""
+    found = re.findall(r"CURRENT SUBTASK:\s*(.+)", text, re.I)
+    if not found:
+        return None
+    answer = found[-1].strip()
+    number = re.match(r"\W*(\d+)", answer)
+    if re.match(r"\W*(DONE|ALL)\b", answer, re.I):
+        i = len(steps)
+    elif number:
+        i = int(number.group(1)) - 1
+    else:
+        close = difflib.get_close_matches(answer.lower(), [s.lower() for s in steps], n=1, cutoff=0.6)
+        i = [s.lower() for s in steps].index(close[0]) if close else -1
+    if not 0 <= i <= len(steps):
+        return None
+    step = "done" if i > idx else "running" if i == idx else "back"
+    return {"step": step, "subtask_index": i, "subtask": steps[i] if i < len(steps) else "DONE"}
+
+
 SIGNALS = {
     "gripper_toggle": "the gripper just opened or closed",
     "quiescence": "the robot stopped moving",
@@ -86,12 +118,17 @@ class Reasoner(ABC):
     @abstractmethod
     def check(self, instruction: str, step: str, reasons: list[str], images: list[np.ndarray]) -> Answer: ...
 
+    def phase_check(self, instruction: str, steps: list[str], idx: int, definition: str, reasons: list[str],
+                    images: list[np.ndarray]) -> Answer:
+        raise NotImplementedError
+
 
 class ScriptedReasoner(Reasoner):
     """Fixed answers, for tests and simulator smoke runs without a VLM. check_answers repeat their last entry."""
 
-    def __init__(self, valid: bool = True, steps: list[str] | None = None, check_answers: list[dict] | None = None):
-        self.valid, self.steps = valid, steps
+    def __init__(self, valid: bool = True, steps: list[str] | None = None, check_answers: list[dict] | None = None,
+                 phase_answers: list[str] | None = None):
+        self.valid, self.steps, self.phase_answers = valid, steps, phase_answers or ["CURRENT SUBTASK: 1"]
         self.check_answers = check_answers or [{"step": "running", "task": "running"}]
         self.i = 0
 
@@ -109,18 +146,24 @@ class ScriptedReasoner(Reasoner):
         self.i += 1
         return Answer(a, json.dumps(a), "scripted")
 
+    def phase_check(self, instruction, steps, idx, definition, reasons, images):
+        raw = self.phase_answers[min(self.i, len(self.phase_answers) - 1)]
+        self.i += 1
+        return Answer(parse_phase(raw, steps, idx), raw, "scripted")
+
 
 class QwenReasoner(Reasoner):
     """Qwen3-VL through plain transformers, greedy. On a T4 use fp16 (no native bf16)."""
 
     def __init__(self, model: str = "Qwen/Qwen3-VL-2B-Instruct", device: str = "cuda", dtype: str = "float16",
-                 image_size: int = 256, max_tokens_check: int = 30, max_tokens_plan: int = 120):
+                 image_size: int = 256, max_tokens_check: int = 30, max_tokens_plan: int = 120, max_tokens_phase: int = 100):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
         self.torch = torch
         self.device, self.image_size = device, image_size
         self.max_tokens_check, self.max_tokens_plan, self.max_tokens_letter = max_tokens_check, max_tokens_plan, 3
+        self.max_tokens_phase = max_tokens_phase
         self.processor = AutoProcessor.from_pretrained(model)
         self.model = AutoModelForImageTextToText.from_pretrained(model, dtype=getattr(torch, dtype)).to(device).eval()
 
@@ -151,6 +194,16 @@ class QwenReasoner(Reasoner):
         signals = "; ".join(SIGNALS[r] for r in reasons if r in SIGNALS)
         prompt = CHECK_V2.format(step=step, signals=f"\nSignal: {signals}." if signals else "")
         return self._generate(prompt, images[:1], self.max_tokens_letter, "check_v2", parse_check)  # scene camera only, as tested
+
+    def phase_check(self, instruction, steps, idx, definition, reasons, images):
+        n = len(steps)
+        state = lambda i: "finished" if i < idx else "current" if i == idx else "not started"
+        phases = "\n".join(f"{i + 1}. {s} [{state(i)}]" for i, s in enumerate(steps))
+        signals = "; ".join(SIGNALS[r] for r in reasons if r in SIGNALS)
+        last = " If the last phase is finished, write: CURRENT SUBTASK: DONE" if idx == n - 1 else ""
+        prompt = PHASE_CHECK_V1.format(instruction=instruction, n=n, phases=phases, k=idx + 1, step=steps[idx], definition=definition,
+                                       signals=f"\nSignal: {signals}." if signals else "", next_k=idx + 2 if idx < n - 1 else "DONE", last=last)
+        return self._generate(prompt, images, self.max_tokens_phase, "phase_check_v1", lambda raw: parse_phase(raw, steps, idx))
 
 
 def build_reasoner(cfg: dict, shared: dict | None = None) -> Reasoner:

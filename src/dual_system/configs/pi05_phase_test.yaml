@@ -1,0 +1,13 @@
+# pi0.5 alone against the phase-aware System 2, from the stored in-distribution start: 3 tasks x 2 seeds = 6 episodes per
+# condition, at most 300 steps each.
+run: pi05_phase_test
+max_steps: 300
+suites:
+  - {name: libero_goal, tasks: [1, 4]}
+  - {name: libero_10, tasks: [2]}
+robot_states:
+  A: {init_state_id: 0}
+conditions: [passthrough, full_phase_atomic]
+system1: {type: pi05, path: lerobot/pi05_libero_finetuned_v044, n_action_steps: 10}
+base_seed: 1000
+seeds_per_cell: 2

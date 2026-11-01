@@ -1,7 +1,8 @@
 """Atomic output semantics. System 2's prompts hold no command vocabulary; it all comes from a profile here.
 
 A profile (profiles/<name>.yaml) has: `rules` (how commands must look), `examples`, `recovery_commands`, and optional
-`tasks` (instruction -> candidate commands). Swapping the file changes the semantics without touching code.
+`tasks` (instruction -> candidate commands) and `phase_definitions` (what a finished phase looks like). Swapping the file
+changes the semantics without touching code.
 """
 from __future__ import annotations
 
@@ -27,6 +28,10 @@ class Retriever(ABC):
     def recovery_commands(self) -> list[str]:
         """Sentences issued in order when a sub-goal failed."""
 
+    def phase_definition(self, step: str) -> str:
+        """What the scene looks like when this phase is finished."""
+        return "the result of the command is clearly visible in the scene and the robot has finished."
+
 
 class StaticRetriever(Retriever):
     """Returns the matching parts of one profile. The corpus is small, so no embedding search is needed yet."""
@@ -44,6 +49,13 @@ class StaticRetriever(Retriever):
 
     def recovery_commands(self):
         return list(self.doc.get("recovery_commands", []))
+
+    def phase_definition(self, step):
+        text = step.lower()
+        for d in self.doc.get("phase_definitions", []):
+            if any(m in text for m in d["match"]):
+                return d["done"]
+        return self.doc.get("default_definition") or super().phase_definition(step)
 
 
 def snap_to_candidates(steps: list[str], candidates: list[str] | None, cutoff: float = 0.6) -> list[str]:

@@ -1,0 +1,30 @@
+# free_atomic plus what each kind of phase looks like when it is finished. The definitions are looked up per phase by the
+# first match in the phase text, so nothing here is task-specific.
+name: phase_atomic
+rules:
+  - Break the instruction down as far as possible. Every command is atomic, one single action on one single object, such as picking up, placing, opening, closing or turning on.
+  - Write each command yourself as one short imperative sentence, using the object and target names from the instruction word for word.
+  - Never join two actions or two objects in one command. A command containing "and", "both" or "then" is wrong.
+  - Only an instruction that is already one single action stays as one command.
+examples:
+  - 'Instruction "put the cup in the box" gives steps ["pick up the cup", "place the cup in the box"].'
+  - 'Instruction "put the cup on top of the shelf" gives steps ["pick up the cup", "place the cup on top of the shelf"].'
+  - 'Instruction "put both the cup and the plate in the box" gives steps ["pick up the cup", "place the cup in the box", "pick up the plate", "place the plate in the box"].'
+  - 'Instruction "open the lid and press the button" gives steps ["open the lid", "press the button"].'
+recovery_commands:
+  - open the gripper
+  - move back to the home position
+phase_definitions:
+  - match: [pick up, pick, grasp, lift]
+    done: the named object is between the closed gripper fingers and is lifted clearly above the table or its support. A gripper that is only close to the object, or closed while the object still sits on the table, is not finished.
+  - match: [place, put, set down]
+    done: the named object rests on or in the named target, the gripper fingers are open and no longer hold it. An object still in the gripper or above the target, or an object on a different surface, is not finished.
+  - match: [turn on, switch on]
+    done: the appliance is visibly on. A stove is on when the burner ring on top of it glows red. A dark burner means it is still off, even if the gripper is at the knob.
+  - match: [turn off, switch off]
+    done: the appliance is visibly off. A stove is off when its burner ring is dark and shows no red glow.
+  - match: [open]
+    done: the named drawer, door or lid has moved and stands clearly open, with a visible gap. A gripper that only holds the handle is not finished.
+  - match: [close, shut]
+    done: the named drawer, door or lid is fully shut, with no gap left.
+default_definition: the result of the command is clearly visible in the scene and the robot has finished.
