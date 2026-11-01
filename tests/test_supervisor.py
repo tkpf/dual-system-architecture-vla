@@ -164,6 +164,18 @@ def test_snap_to_candidates():
     assert snap_to_candidates(["anything"], None) == ["anything"]
 
 
+def test_free_atomic_profile_keeps_the_models_own_steps():
+    r = StaticRetriever("free_atomic")
+    assert r.candidates(INSTR) is None and r.recovery_commands()
+    steps = ["turn on the stove", "pick up the moka pot", "place the moka pot on the stove"]
+    s = Supervisor(ScriptedReasoner(steps=steps), r)
+    s.reset(INSTR)
+    assert s.decide(inp(0, ["start"])).command.text == steps[0] and s.steps == steps
+    text = " ".join(r.rules(INSTR)).lower()
+    for word in ("stove", "bowl", "moka", "drawer", "basket", "as few"):
+        assert word not in text
+
+
 def test_prompts_hold_no_vocabulary():
     """Command words must come from the profile, so semantics can be swapped without code changes."""
     from dual_system.system2 import reasoners

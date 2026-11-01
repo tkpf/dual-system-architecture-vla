@@ -1,0 +1,15 @@
+# System 2 writes its own atomic commands; there is no candidate list and nothing task-specific. The examples use
+# objects that are not in the LIBERO tasks on purpose, so the model has to derive each command from the instruction.
+name: free_atomic
+rules:
+  - Break the instruction down as far as possible. Every command is atomic, one single action on one single object, such as picking up, placing, opening, closing or turning on.
+  - Write each command yourself as one short imperative sentence, using the object names from the instruction.
+  - Never join two actions or two objects in one command. A command containing "and", "both" or "then" is wrong.
+  - Only an instruction that is already one single action stays as one command.
+examples:
+  - 'Instruction "put the cup in the box" gives steps ["pick up the cup", "place the cup in the box"].'
+  - 'Instruction "put both the cup and the plate in the box" gives steps ["pick up the cup", "place the cup in the box", "pick up the plate", "place the plate in the box"].'
+  - 'Instruction "open the lid and press the button" gives steps ["open the lid", "press the button"].'
+recovery_commands:
+  - open the gripper
+  - move back to the home position

@@ -111,7 +111,7 @@ def render_pair(single_cell: Path, dual_cell: Path, out: Path) -> Path:
     frames_d = imageio.get_reader(dual_cell / "episode.mp4")
     out.parent.mkdir(parents=True, exist_ok=True)
     writer = imageio.get_writer(out, fps=20, codec="libx264", macro_block_size=1)
-    label = dual_cell.name.rsplit("__", 1)[0].replace("__", "  ")
+    label = dual_cell.name.replace("__", "  ")
     it_s, it_d = iter(frames_s), iter(frames_d)
     last_s, last_d, t = None, None, 0
     while True:
@@ -134,11 +134,14 @@ def render_all(res: str | Path, out_dir: str | Path | None = None) -> list[Path]
     res = Path(res)
     out_dir = Path(out_dir) if out_dir else res / "videos"
     made = []
-    for dual_cell in find_cells(res, condition="full"):
-        single_cell = dual_cell.with_name(dual_cell.name.rsplit("__", 1)[0] + "__passthrough")
+    for dual_cell in find_cells(res):
+        base, condition = dual_cell.name.rsplit("__", 1)
+        if condition == "passthrough":
+            continue
+        single_cell = dual_cell.with_name(base + "__passthrough")
         ready = all((c / "episode.mp4").exists() and (c / "DONE").exists() for c in (single_cell, dual_cell))
         if ready:
-            made.append(render_pair(single_cell, dual_cell, out_dir / (dual_cell.name.rsplit("__", 1)[0] + ".mp4")))
+            made.append(render_pair(single_cell, dual_cell, out_dir / (dual_cell.name + ".mp4")))
     return made
 
 

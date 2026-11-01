@@ -1,0 +1,12 @@
+# Same tasks, states and seeds as first_test, comparing two knowledge profiles against the single system.
+# full uses the rewritten closed_set; full_free_atomic has no candidate list.
+run: profiles_test
+suites:
+  - {name: libero_goal, tasks: [0, 1, 4]}
+  - {name: libero_10, tasks: [0, 2, 3]}
+robot_states:
+  A: {init_state_id: 0}
+  B: {init_state_id: 0, joint_offset_deg: [25, -20, 0, -25, 0, 25, 0]}
+conditions: [passthrough, full, full_free_atomic]
+system1: {type: smolvla, path: lerobot/smolvla_libero, n_action_steps: 10}
+base_seed: 1000

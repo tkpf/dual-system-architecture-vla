@@ -98,12 +98,14 @@ def main(res: str) -> None:
         return
     pd.set_option("display.width", 200, "display.max_columns", 30)
     print(success_table(df).to_string(index=False), "\n")
-    pairs = pairs_table(df)
-    print(pairs.to_string(index=False), "\n")
-    s, d = pairs.single_success.astype(bool), pairs.dual_success.astype(bool)
-    print(f"complete pairs: {len(pairs)}; dual only: {int((d & ~s).sum())}; single only: {int((s & ~d).sum())}; "
-          f"both: {int((s & d).sum())}; neither: {int((~s & ~d).sum())}")
-    print("verdicts:", verdict_quality(df))
+    for condition in sorted(c for c in df.condition.unique() if c != "passthrough"):
+        pairs = pairs_table(df, b=condition)
+        print(f"--- passthrough vs {condition}")
+        print(pairs.to_string(index=False), "\n")
+        s, d = pairs.single_success.astype(bool), pairs.dual_success.astype(bool)
+        print(f"complete pairs: {len(pairs)}; dual only: {int((d & ~s).sum())}; single only: {int((s & ~d).sum())}; "
+              f"both: {int((s & d).sum())}; neither: {int((~s & ~d).sum())}")
+        print("verdicts:", verdict_quality(df[df.condition == condition]), "\n")
     print("subgoals:", write_subgoals_csv(res))
     fs = false_successes(res)
     print(f"System 2 said success, LIBERO false: {len(fs)}")

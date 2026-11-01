@@ -1,0 +1,22 @@
+# Same as full, except that System 2 writes its own atomic commands instead of choosing from candidates.
+system2:
+  type: supervisor
+  gate: true
+  decompose: true
+  recover: true
+  judge: true
+  confirmations: 2
+  max_retries: 2
+  recovery_steps: 40
+  min_verdict_step: 40
+  reasoner: {type: qwen, model: Qwen/Qwen3-VL-2B-Instruct, device: cuda, dtype: float16}
+  knowledge: {type: static, profile: free_atomic}
+triggers:
+  min_gap: 5
+  enabled:
+    periodic: {every_steps: 20}   # 1 s of sim time
+    gripper_toggle: {debounce: 3}
+    quiescence: {window: 20}
+    empty_grasp: {width_m: 0.004}
+    subgoal_timeout: {steps: 300}
+interface: {type: identity}
