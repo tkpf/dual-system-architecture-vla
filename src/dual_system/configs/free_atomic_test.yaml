@@ -1,12 +1,15 @@
 # Default for dual-system runs: the single system against System 2 writing its own atomic commands.
-# Same tasks, states and seeds as first_test and profiles_test.
+# State A: stored start. C: about 10 cm gripper shift. B: about 19 cm. All without contacts or drift on these six tasks,
+# checked with scripts/tune_robot_state.py. One seed proved too noisy to compare single pairs, hence two per cell.
 run: free_atomic_test
 suites:
   - {name: libero_goal, tasks: [0, 1, 4]}
   - {name: libero_10, tasks: [0, 2, 3]}
 robot_states:
   A: {init_state_id: 0}
+  C: {init_state_id: 0, joint_offset_deg: [12, -10, 0, -12, 0, 12, 0]}
   B: {init_state_id: 0, joint_offset_deg: [25, -20, 0, -25, 0, 25, 0]}
 conditions: [passthrough, full_free_atomic]
-system1: {type: smolvla, path: lerobot/smolvla_libero, n_action_steps: 10}
+system1: {type: smolvla, path: lerobot/smolvla_libero_plus, n_action_steps: 10}
 base_seed: 1000
+seeds_per_cell: 2
