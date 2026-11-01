@@ -1,5 +1,6 @@
 """The control loop and the video/report tools on a fake world, no simulator needed."""
 import json
+from collections import deque
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from dual_system.knowledge import StaticRetriever
 from dual_system.robot_states import RobotState
 from dual_system.rollout import RolloutRunner
 from dual_system.system1.base import System1
+from dual_system.system1.lerobot_policy import clear_action_queue
 from dual_system.system2 import Passthrough, Supervisor
 from dual_system.system2.reasoners import ScriptedReasoner
 from dual_system.tracing import TraceWriter
@@ -195,3 +197,17 @@ def test_pairs_share_seed_and_order():
     assert cells[0].condition == "passthrough" and cells[1].condition == "full" and cells[0].seed == cells[1].seed
     assert cells[0].seed != cells[2].seed
     assert [c.task_id for c in cells] == [0, 0, 0, 0, 1, 1, 1, 1]
+
+
+def test_clear_action_queue_empties_the_queue_the_policy_reads():
+    class Smol:
+        _queues = {"action": deque([1, 2])}
+
+    class Pi:
+        _queues = {"action": deque([1])}
+        _action_queue = deque([1, 2])
+
+    clear_action_queue(Smol, "action")
+    clear_action_queue(Pi, "action")
+    assert not Smol._queues["action"]
+    assert not Pi._action_queue
