@@ -1,0 +1,13 @@
+# pi0.5 as System 1, alone against System 2 writing its own atomic commands. Same scenes and start states as the schedule
+# probe that compared pi0.5 with SmolVLA: 3 tasks x 2 shifted starts x 2 seeds = 12 episodes per condition.
+run: pi05_atomic_test
+suites:
+  - {name: libero_goal, tasks: [1, 4]}
+  - {name: libero_10, tasks: [2]}
+robot_states:
+  C: {init_state_id: 0, joint_offset_deg: [12, -10, 0, -12, 0, 12, 0]}
+  B: {init_state_id: 0, joint_offset_deg: [25, -20, 0, -25, 0, 25, 0]}
+conditions: [passthrough, full_free_atomic]
+system1: {type: pi05, path: lerobot/pi05_libero_finetuned_v044, n_action_steps: 10}
+base_seed: 1000
+seeds_per_cell: 2
