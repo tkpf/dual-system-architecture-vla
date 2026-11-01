@@ -153,10 +153,11 @@ class ScriptedReasoner(Reasoner):
 
 
 class QwenReasoner(Reasoner):
-    """Qwen3-VL through plain transformers, greedy. On a T4 use fp16 (no native bf16)."""
+    """Qwen3-VL (or another AutoModelForImageTextToText VLM) through plain transformers, greedy. On a T4 use fp16 (no native bf16)."""
 
     def __init__(self, model: str = "Qwen/Qwen3-VL-2B-Instruct", device: str = "cuda", dtype: str = "float16",
-                 image_size: int = 256, max_tokens_check: int = 30, max_tokens_plan: int = 120, max_tokens_phase: int = 100):
+                 image_size: int = 256, max_tokens_check: int = 30, max_tokens_plan: int = 120, max_tokens_phase: int = 100,
+                 quantize: bool = False):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -165,7 +166,13 @@ class QwenReasoner(Reasoner):
         self.max_tokens_check, self.max_tokens_plan, self.max_tokens_letter = max_tokens_check, max_tokens_plan, 3
         self.max_tokens_phase = max_tokens_phase
         self.processor = AutoProcessor.from_pretrained(model)
-        self.model = AutoModelForImageTextToText.from_pretrained(model, dtype=getattr(torch, dtype)).to(device).eval()
+        if quantize:  # 4-bit, for models that do not fit on the GPU otherwise
+            from transformers import BitsAndBytesConfig
+
+            config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=getattr(torch, dtype))
+            self.model = AutoModelForImageTextToText.from_pretrained(model, quantization_config=config, device_map={"": device}).eval()
+        else:
+            self.model = AutoModelForImageTextToText.from_pretrained(model, dtype=getattr(torch, dtype)).to(device).eval()
 
     def _generate(self, prompt: str, images: list[np.ndarray], max_new: int, prompt_id: str, parse=parse_json) -> Answer:
         from PIL import Image
