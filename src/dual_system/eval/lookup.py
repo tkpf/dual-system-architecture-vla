@@ -13,8 +13,8 @@ def find_cells(res: str | Path, suite=None, task=None, state=None, condition=Non
     out = []
     for d in sorted(p for p in Path(res).iterdir() if (p / "trace.jsonl").exists()):
         parts = d.name.split("__")
-        if len(parts) == 4 and (suite in (None, parts[0])) and (task in (None, int(parts[1][1:]))) \
-                and (state in (None, parts[2])) and (condition in (None, parts[3])):
+        if len(parts) in (4, 5) and (suite in (None, parts[0])) and (task in (None, int(parts[1][1:]))) \
+                and (state in (None, parts[2])) and (condition in (None, parts[-1])):  # 5 parts: with a seed index
             out.append(d)
     return out
 

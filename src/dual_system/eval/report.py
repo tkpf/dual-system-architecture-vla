@@ -54,7 +54,7 @@ def success_table(df: pd.DataFrame) -> pd.DataFrame:
 
 def pairs_table(df: pd.DataFrame, a: str = "passthrough", b: str = "full") -> pd.DataFrame:
     """One row per complete pair; dual_only / single_only are the discordant pairs a sign test uses."""
-    keys = ["suite", "task_id", "robot_state"]
+    keys = ["suite", "task_id", "robot_state", "seed"]
     pa = df[df.condition == a].set_index(keys)
     pb = df[df.condition == b].set_index(keys)
     idx = pa.index.intersection(pb.index)

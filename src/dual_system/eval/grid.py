@@ -30,10 +30,12 @@ class Cell:
     condition: str
     seed: int
     is_libero_plus: bool = False
+    rep: int | None = None  # set when a config asks for several seeds per cell
 
     @property
     def name(self) -> str:
-        return f"{self.suite_key}__t{self.task_id}__{self.robot_state}__{self.condition}"
+        rep = f"__s{self.rep}" if self.rep is not None else ""
+        return f"{self.suite_key}__t{self.task_id}__{self.robot_state}{rep}__{self.condition}"
 
 
 def load_config(name: str) -> dict:
@@ -47,15 +49,17 @@ def load_config(name: str) -> dict:
 def build_cells(cfg: dict, only_suites: list[str] | None = None) -> list[Cell]:
     """Task by task, so every task gets its complete set of pairs before the next one starts."""
     cells = []
-    for s in cfg["suites"]:
-        if only_suites and s["name"] not in only_suites:
-            continue
-        for task in s["tasks"]:
-            for state in cfg["robot_states"]:
-                seed = cfg["base_seed"] + zlib.crc32(f"{s.get('suite', s['name'])}-{task}-{state}".encode()) % 100000
-                for cond in cfg["conditions"]:
-                    cells.append(Cell(s["name"], s.get("suite", s["name"]), task, state, cond, seed,
-                                      s.get("is_libero_plus", False)))
+    n_seeds = cfg.get("seeds_per_cell")
+    for rep in range(n_seeds or 1):  # every seed covers the whole grid, so stopping early leaves balanced pairs
+        for s in cfg["suites"]:
+            if only_suites and s["name"] not in only_suites:
+                continue
+            for task in s["tasks"]:
+                for state in cfg["robot_states"]:
+                    seed = cfg["base_seed"] + rep * 1000 + zlib.crc32(f"{s.get('suite', s['name'])}-{task}-{state}".encode()) % 100000
+                    for cond in cfg["conditions"]:
+                        cells.append(Cell(s["name"], s.get("suite", s["name"]), task, state, cond, seed,
+                                          s.get("is_libero_plus", False), rep if n_seeds else None))
     return cells
 
 

@@ -174,6 +174,19 @@ def test_report_pairs_and_video(tmp_path):
     assert len(frames) >= 41  # runs to the longer episode, then holds the final frame
 
 
+def test_seeds_per_cell_keeps_pairs_and_adds_a_name_part(tmp_path):
+    cfg = dict(suites=[dict(name="libero_goal", tasks=[0])], robot_states=dict(A={}), conditions=["passthrough", "full"],
+               base_seed=1000, seeds_per_cell=2)
+    cells = build_cells(cfg)
+    assert [c.name for c in cells] == ["libero_goal__t0__A__s0__passthrough", "libero_goal__t0__A__s0__full",
+                                       "libero_goal__t0__A__s1__passthrough", "libero_goal__t0__A__s1__full"]
+    assert cells[0].seed == cells[1].seed != cells[2].seed == cells[3].seed
+    for c in cells:
+        (tmp_path / c.name).mkdir()
+        (tmp_path / c.name / "trace.jsonl").write_text("")
+    assert len(lookup.find_cells(tmp_path, task=0, state="A", condition="full")) == 2
+
+
 def test_pairs_share_seed_and_order():
     cfg = dict(suites=[dict(name="libero_goal", tasks=[0, 1])], robot_states=dict(A={}, B={}),
                conditions=["passthrough", "full"], base_seed=1000)
