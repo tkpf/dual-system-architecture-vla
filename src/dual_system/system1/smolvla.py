@@ -36,12 +36,14 @@ class SmolVLASystem1(System1):
         cfg.pretrained_path = path
         cfg.n_action_steps = n_action_steps
         cfg.device = device
-        self.policy = make_policy(cfg=cfg, env_cfg=env_cfg, rename_map=RENAME_MAP)
+        # Checkpoints differ in their camera names: rename only for those that expect camera1 / camera2.
+        rename = RENAME_MAP if set(RENAME_MAP.values()) <= set(cfg.input_features) else {}
+        self.policy = make_policy(cfg=cfg, env_cfg=env_cfg, rename_map=rename)
         self.policy.eval()
         self.pre, self.post = make_pre_post_processors(
             policy_cfg=cfg, pretrained_path=path,
             preprocessor_overrides={"device_processor": {"device": device},
-                                    "rename_observations_processor": {"rename_map": RENAME_MAP}})
+                                    "rename_observations_processor": {"rename_map": rename}})
         self.env_pre, self.env_post = make_env_pre_post_processors(env_cfg=env_cfg, policy_cfg=cfg)
         self.command = ""
 

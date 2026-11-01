@@ -1,0 +1,12 @@
+# Single system only, with the checkpoint trained on lerobot/libero_plus. The envs are still standard LIBERO, with the
+# same tasks, states and seeds as first_test, so this is directly comparable to its passthrough cells.
+run: libero_plus_checkpoint
+suites:
+  - {name: libero_goal, tasks: [0, 1, 4]}
+  - {name: libero_10, tasks: [0, 2, 3]}
+robot_states:
+  A: {init_state_id: 0}
+  B: {init_state_id: 0, joint_offset_deg: [25, -20, 0, -25, 0, 25, 0]}
+conditions: [passthrough]
+system1: {type: smolvla, path: lerobot/smolvla_libero_plus, n_action_steps: 10}
+base_seed: 1000
