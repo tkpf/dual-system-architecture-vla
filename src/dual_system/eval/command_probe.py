@@ -1,12 +1,13 @@
 """Does System 1 follow a language command? No System 2: fixed commands, compared with a gibberish control.
 
     python -m dual_system.eval.command_probe --res /content/probe [--type pi05 --path lerobot/pi05_libero_finetuned_v044]
-        [--seeds 2] [--states A] [--kinds task switch schedule]
+        [--seeds 2] [--states A] [--kinds task switch schedule] [--video]
 
 Three kinds of case. Task commands run from the start and report goal predicates and lifted objects. Switch commands first
 run the instruction for pre_steps, then change to the command, and report what changes after the switch. Schedule cases
 give atomic commands at fixed steps with no VLM, next to the whole instruction and gibberish for the same number of steps.
-Finished runs are skipped on restart.
+Finished runs are skipped on restart. --video saves each schedule run's scene camera to <res>/videos; compare_probe stitches
+two runs side by side.
 """
 from __future__ import annotations
 
@@ -50,13 +51,15 @@ def object_heights(world) -> dict[str, float]:
     return {name: float(inner.sim.data.body_xpos[i][2]) for name, i in inner.obj_body_id.items()}
 
 
-def run_case(world, system1, state, seed: int, commands: list[tuple[int, str]], max_steps: int) -> dict:
-    """commands: (step, text), in time order. Returns per-segment measurements."""
+def run_case(world, system1, state, seed: int, commands: list[tuple[int, str]], max_steps: int, frames: list | None = None) -> dict:
+    """commands: (step, text), in time order. Returns per-segment measurements. frames collects the scene camera."""
     from ..rollout import seed_everything
 
     seed_everything(seed)
     system1.reset()
     obs = world.reset(state, seed)
+    if frames is not None:
+        frames.append(obs.agent)
     start_pos, start_z = obs.eef_pos.copy(), object_heights(world)
     first_true: dict[str, int] = {}
     max_rise = {k: 0.0 for k in start_z}
@@ -72,7 +75,7 @@ def run_case(world, system1, state, seed: int, commands: list[tuple[int, str]], 
                        mean_grip_action=round(float(np.mean(seg.pop("_grip"))), 3) if seg["_grip"] else None)
             segments.append(seg)
 
-    success = False
+    success, first_success = False, None
     while obs.t < max_steps:
         if obs.t in switch_at:
             close_segment()
@@ -83,6 +86,10 @@ def run_case(world, system1, state, seed: int, commands: list[tuple[int, str]], 
         action = system1.act(obs)
         prev = obs.eef_pos.copy()
         obs, success = world.step(action)
+        if frames is not None:
+            frames.append(obs.agent)
+        if success and first_success is None:
+            first_success = obs.t
         seg["_travel"] += float(np.linalg.norm(obs.eef_pos - prev))
         seg["_grip"].append(float(action[6]))
         for k, v in object_heights(world).items():
@@ -95,7 +102,7 @@ def run_case(world, system1, state, seed: int, commands: list[tuple[int, str]], 
     info = world.reset_info()
     shift = np.linalg.norm(np.subtract(info["eef_before_offset"], info["eef_after_settle"]))
     return dict(start_shift_cm=round(float(shift) * 100, 1), start_contacts=info["collision_contacts"],
-                segments=segments, predicates_first_true=first_true, env_success_at_end=bool(success),
+                segments=segments, predicates_first_true=first_true, env_success_at_end=bool(success), first_success_step=first_success,
                 lifted={k: round(v, 3) for k, v in max_rise.items() if v > LIFT_M}, trace=trace)
 
 
@@ -110,6 +117,7 @@ def main() -> None:
     p.add_argument("--path", default="lerobot/smolvla_libero_plus")
     p.add_argument("--states", nargs="*", default=["A"], choices=list(ROBOT_STATES))
     p.add_argument("--kinds", nargs="*", default=["task", "switch", "schedule"])
+    p.add_argument("--video", action="store_true", help="save the scene camera of schedule runs")
     p.add_argument("--seeds", type=int, default=2)
     p.add_argument("--task-steps", type=int, default=200)
     p.add_argument("--pre-steps", type=int, default=60)
@@ -132,11 +140,18 @@ def main() -> None:
                 row = dict(kind=kind, suite=suite, task=task, command=command, seed=seed, robot_state=state_name, checkpoint=a.path)
                 if key(row) in finished:
                     continue
+                frames = [] if a.video and kind == "schedule" else None
                 world = LiberoWorld(suite, task, max_steps=max_steps)
                 try:
-                    r = run_case(world, system1, state, seed, schedule, max_steps)
+                    r = run_case(world, system1, state, seed, schedule, max_steps, frames)
                 finally:
                     world.close()
+                if frames:
+                    import imageio.v2 as imageio
+
+                    row["video"] = f"{suite}__t{task}__{state_name}__s{s}__{zlib.crc32(command.encode()):08x}.mp4"
+                    (res / "videos").mkdir(exist_ok=True)
+                    imageio.mimwrite(res / "videos" / row["video"], frames, fps=20, codec="libx264", macro_block_size=1)
                 out.write(json.dumps(dict(row, **r)) + "\n")
                 out.flush()
                 print(kind, suite, task, state_name, f"{r['start_shift_cm']} cm", repr(command), "success", r["env_success_at_end"],
