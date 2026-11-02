@@ -1,6 +1,7 @@
 """The final comparison: the same scene, start and seed under four ways of commanding pi0.5.
 
     python -m dual_system.eval.final run --res <res> [--seeds 1] [--states C B] [--conditions passthrough frozen fused oracle]
+        [--suite-tasks libero_10:3 libero_10:9]     # any LIBERO task instead of the three default scenes
     python -m dual_system.eval.final report <res>
     python -m dual_system.eval.final video <res>            # 2x2 side-by-side videos, one per scene
 
@@ -145,7 +146,8 @@ def run(a) -> None:
     system1 = build_system1(dict(type="pi05", path=a.path, n_action_steps=10))
     judge = VlmJudge() if any(c.startswith("fused") for c in a.conditions) else None
     init = splits["init_states"]["select"][0]
-    tasks = [SEEN[i] for i in a.tasks]
+    by_id = {(suite, i): task for task, (suite, i, _) in suites.items()}
+    tasks = [by_id[(x.split(":")[0], int(x.split(":")[1]))] for x in a.suite_tasks] if a.suite_tasks else [SEEN[i] for i in a.tasks]
     t_start = time.time()
     for rep in range(a.seeds):  # seed-major, so stopping early leaves balanced pairs
         for task in tasks:
@@ -281,6 +283,7 @@ if __name__ == "__main__":
     p.add_argument("--seeds", type=int, default=1)
     p.add_argument("--states", nargs="*", default=["C", "B"], choices=list(ROBOT_STATES))
     p.add_argument("--tasks", nargs="*", type=int, default=[0, 1, 2], help="indices into atomic.SEEN")
+    p.add_argument("--suite-tasks", nargs="*", help="suite:task_id, e.g. libero_10:3; replaces --tasks")
     p.add_argument("--conditions", nargs="*", default=CONDITIONS, choices=ALL_CONDITIONS)
     p.add_argument("--stop-after-min", type=float)
     a = p.parse_args()
