@@ -36,7 +36,7 @@ def test_release_before_any_hold_does_not_finish_place():
 
 def test_empty_grasp_recovers_then_retries():
     sw = FusedSwitcher(PHASES)
-    ev = drive(sw, [(0.078, 1.0)] * 5 + [(0.004, 0.9)] * 8)
+    ev = drive(sw, [(0.078, 1.0)] * 5 + [(0.001, 0.9)] * 8)
     assert ev[0]["reason"] == "empty_grasp" and sw.command == RECOVERY_COMMAND
     t = 14
     out = []
@@ -50,7 +50,7 @@ def test_empty_grasp_recovers_then_retries():
 
 def test_no_recovery_when_disabled():
     sw = FusedSwitcher(PHASES, recover=False, timeout=1000)
-    assert drive(sw, [(0.078, 1.0)] * 5 + [(0.004, 0.9)] * 30) == []
+    assert drive(sw, [(0.078, 1.0)] * 5 + [(0.001, 0.9)] * 30) == []
 
 
 def test_timeout_advances_but_never_past_the_last_phase():
@@ -86,3 +86,9 @@ def test_oracle_switches_on_truth_and_times_out():
     assert sw.update(3, True)["reason"] == "oracle" and sw.idx == 1
     assert sw.update(12, False) is None
     assert sw.update(14, True).get("all_done")
+
+
+def test_thin_bowl_grip_counts_as_held_not_empty():
+    sw = FusedSwitcher(PHASES)
+    ev = drive(sw, [(0.078, 1.0)] * 5 + [(0.0046, 0.9 + 0.01 * i) for i in range(20)])
+    assert [e["reason"] for e in ev] == ["signal"]

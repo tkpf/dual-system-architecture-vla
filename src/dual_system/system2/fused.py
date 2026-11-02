@@ -10,13 +10,15 @@ unfinished frames called done) and that false verdicts ended healthy episodes. S
          threshold for `vlm_confirm` checks in a row, after a minimum time
   every phase also has a timeout, after which the next command is issued anyway
 Recovery: the gripper closed on nothing during a pick -> "open the gripper" for a few steps, then the pick again.
-Width is the sum of both finger positions: about 0.078 open, 0.015 to 0.045 holding a bowl, 0.003 to 0.005 closed on nothing.
+Width is the sum of both finger positions: about 0.078 open, 0.003 to 0.005 when pi0.5 holds the thin bowl rim, about 0.014
+for the moka pot handle, and 0.001 to 0.0017 closed on nothing (pi0.5 command-probe traces). The bowl margin is thin, so a
+pick also needs the hand to rise.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-EMPTY_WIDTH = 0.008
+EMPTY_WIDTH = 0.002
 OPEN_WIDTH = 0.07
 HELD_MAX = 0.065
 RECOVERY_COMMAND = "open the gripper"
