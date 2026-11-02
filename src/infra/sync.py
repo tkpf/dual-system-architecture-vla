@@ -34,7 +34,8 @@ def counts(res_dir: str) -> dict:
     return dict(n_episodes=sum(sum(1 for _ in open(f)) for f in files + probes), n_cells=len(cells),
                 n_cells_done=sum(os.path.exists(c + "/DONE") for c in cells),
                 n_checkpoints=len(glob.glob(f"{res_dir}/**/step_*/COMPLETE", recursive=True)),
-                n_labels=sum(sum(1 for _ in open(f)) for name in ("boundaries.jsonl", "judge_labels.jsonl") for f in glob.glob(f"{res_dir}/{name}")))
+                n_labels=sum(sum(1 for _ in open(f)) for name in ("boundaries.jsonl", "judge_labels.jsonl", "**/atomic_*.jsonl")
+                             for f in glob.glob(f"{res_dir}/{name}", recursive=True)))
 
 
 def write_sync_info(res_dir: str) -> dict | None:
