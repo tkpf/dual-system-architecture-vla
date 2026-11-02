@@ -33,6 +33,15 @@ def test_pick_ends_at_first_grasp_when_contact_flickers_during_the_carry():
     assert [(p["kind"], p["end"]) for p in phases] == [("pick", 21), ("place", 91)]
 
 
+def test_place_runs_on_until_the_fingers_let_go():
+    goals = {"on bowl_1 stove": flags(50, (40, 50))}
+    touching = {"bowl_1": flags(50, (20, 45))}
+    phases, _ = find_phases(PICK_PLACE, goals, {"bowl_1": flags(50, (20, 38))}, flags(50), touching)
+    assert phases[-1]["end"] == 46
+    never = {"bowl_1": flags(50, (20, 50))}
+    assert find_phases(PICK_PLACE, goals, {"bowl_1": flags(50, (20, 38))}, flags(50), never)[0][-1]["end"] == 41
+
+
 def test_second_object_ignores_grasps_before_the_first_is_placed():
     groups = [{"goal": "soup", "pick": "pick soup", "place": "place soup"}, {"goal": "sauce", "pick": "pick sauce", "place": "place sauce"}]
     goals = {"in soup_1 basket": flags(100, (40, 100)), "in sauce_1 basket": flags(100, (90, 100))}

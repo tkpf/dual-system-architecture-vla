@@ -47,15 +47,6 @@ def episode_name(e: dict) -> str:
     return f"{hash_text(e['task']):08x}__i{e['init_state']}__{e['robot_state']}__{e['mode']}"
 
 
-def truth(phase: dict, goals: dict[str, bool], gripped, rises: dict[str, float]) -> bool:
-    """A placed object also has to be let go, as the finish condition says. The goal predicate alone passes while still held."""
-    if not phase_done(phase, goals, gripped, rises):
-        return False
-    if phase["kind"] != "place":
-        return True
-    return not gripped(next(k for k in goals if phase["goal"] in k).split()[1])
-
-
 def frame_rows(phases: list[dict], idx: int, flags: list[bool]) -> list[dict]:
     """The active phase, plus the next one as a negative that shares the scene: what the judge must not call finished too early."""
     return [dict(step=phases[i]["command"], kind=phases[i]["kind"], done=flags[i], active=i == idx) for i in range(idx, min(idx + 2, len(phases)))]
@@ -90,7 +81,7 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], mode: str,
         while obs.t - start < PHASE_BUDGET + DWELL_STEPS and dwell < DWELL_STEPS:
             goals = world.goal_progress()
             rises = {k: v - start_z[k] for k, v in object_heights(world).items()}
-            flags = [truth(p, goals, world.gripped, rises) for p in phases]
+            flags = [phase_done(p, goals, world.gripped, rises) for p in phases]
             if obs.t % EVERY_STEPS == 0:
                 frame = save(obs)
                 for r in frame_rows(phases, idx, flags):

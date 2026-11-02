@@ -55,8 +55,10 @@ def first_true_start(flags: np.ndarray, min_len: int, start: int = 0) -> int | N
     return None
 
 
-def find_phases(groups: list[dict], goals: dict[str, np.ndarray], held: dict[str, np.ndarray], gripper_closed: np.ndarray) -> tuple[list[dict] | None, str]:
-    """Contiguous phases [{command, kind, start, end}], or None and the reason. end is exclusive. gripper_closed is per step."""
+def find_phases(groups: list[dict], goals: dict[str, np.ndarray], held: dict[str, np.ndarray], gripper_closed: np.ndarray,
+                touching: dict[str, np.ndarray] | None = None) -> tuple[list[dict] | None, str]:
+    """Contiguous phases [{command, kind, start, end}], or None and the reason. end is exclusive. gripper_closed is per step.
+    A goal predicate turns true while the object is still in the fingers, so a place phase runs on until they let go of it."""
     timed = []
     for group in groups:
         key = next((k for k in goals if group["goal"] in k), None)
@@ -72,11 +74,14 @@ def find_phases(groups: list[dict], goals: dict[str, np.ndarray], held: dict[str
             release = next((u for u in range(done, min(done + MAX_RELEASE_WAIT, len(gripper_closed))) if not gripper_closed[u]), done)
             ends = [("act", group["act"], max(release, done) + 1)]
         else:
-            flags = held[key.split()[1]][:done]
+            name = key.split()[1]
+            flags = held[name][:done]
             grasp = first_true_start(flags, MIN_HELD_FRAMES, t)  # the first firm grasp: contact flickers during the carry
             if grasp is None:
                 return None, f"never held: {key}"
-            ends = [("pick", group["pick"], grasp + 1), ("place", group["place"], done + 1)]
+            contact = touching[name] if touching else np.zeros(len(goals[key]), bool)
+            let_go = next((u for u in range(done, min(done + MAX_RELEASE_WAIT, len(contact))) if not contact[u]), done)
+            ends = [("pick", group["pick"], grasp + 1), ("place", group["place"], let_go + 1)]
         for kind, command, end in ends:
             if end <= t:
                 return None, f"phase out of order: {command}"
@@ -98,11 +103,11 @@ def match_episode(actions: np.ndarray, demos: dict[str, np.ndarray]) -> str | No
     return best
 
 
-def replay(world, states: np.ndarray, extra: list[list[str]] = ()) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-    """Goal predicates, any extra predicates and held flags per step, from the stored sim states."""
+def replay(world, states: np.ndarray, extra: list[list[str]] = ()) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Goal predicates, any extra predicates, held flags and finger contact per step, from the stored sim states."""
     inner = world.env._env.env
     sim = inner.sim
-    goals, held, z0 = {}, {}, {}
+    goals, held, touching, z0 = {}, {}, {}, {}
     for t, s in enumerate(states):
         sim.set_state_from_flattened(s)
         sim.forward()
@@ -113,9 +118,10 @@ def replay(world, states: np.ndarray, extra: list[list[str]] = ()) -> tuple[dict
         for name, i in inner.obj_body_id.items():
             z = float(sim.data.body_xpos[i][2])
             z0.setdefault(name, z)
-            flag = z - z0[name] > RISE_M and world.gripped(name)
-            held.setdefault(name, np.zeros(len(states), bool))[t] = flag
-    return goals, held
+            gripped = world.gripped(name)
+            touching.setdefault(name, np.zeros(len(states), bool))[t] = gripped
+            held.setdefault(name, np.zeros(len(states), bool))[t] = z - z0[name] > RISE_M and gripped
+    return goals, held, touching
 
 
 def tasks_to_suites() -> dict[str, tuple[str, int, str]]:
@@ -167,8 +173,8 @@ def run(out_path: Path) -> None:
                     phases, why = None, "no matching demo"
                 else:
                     extra = [g["predicate"] for g in subtasks[task] if "predicate" in g]
-                    goals, held = replay(world, data[demo]["states"][()], extra)
-                    phases, why = find_phases(subtasks[task], goals, held, demos[demo][:, 6] > 0)
+                    goals, held, touching = replay(world, data[demo]["states"][()], extra)
+                    phases, why = find_phases(subtasks[task], goals, held, demos[demo][:, 6] > 0, touching)
                     if phases:
                         phases = [p for p in phases if p["start"] < len(g)]
                         phases[-1]["end"] = min(phases[-1]["end"], len(g))

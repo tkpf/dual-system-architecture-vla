@@ -41,12 +41,15 @@ def plan_for(task: str, subtasks: dict) -> list[dict]:
 
 
 def phase_done(phase: dict, goals: dict[str, bool], world_gripped, rises: dict[str, float]) -> bool:
-    """Simulator truth for one phase. Pick: both fingers on the object and lifted. Others: the goal predicate holds."""
+    """Simulator truth for one phase. Pick: both fingers on the object and lifted. Place: the goal predicate holds and the
+    fingers have let go, since the predicate turns true while the object is still held. Act: the goal predicate holds."""
     key = next(k for k in goals if phase["goal"] in k)
-    if phase["kind"] != "pick":
-        return goals[key]
     name = key.split()[1]
-    return rises.get(name, 0.0) > 0.02 and world_gripped(name)
+    if phase["kind"] == "pick":
+        return rises.get(name, 0.0) > 0.02 and world_gripped(name)
+    if phase["kind"] == "place":
+        return goals[key] and not world_gripped(name)
+    return goals[key]
 
 
 def wrong_lifts(rises: dict[str, float], target: str | None) -> list[str]:

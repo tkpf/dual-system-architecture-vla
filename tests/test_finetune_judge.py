@@ -1,6 +1,7 @@
 import numpy as np
 
-from dual_system.finetune.collect_judge import TRAIN_TASKS, episodes, frame_rows, perturb, truth
+from dual_system.eval.atomic import phase_done as truth
+from dual_system.finetune.collect_judge import TRAIN_TASKS, episodes, frame_rows, perturb
 from dual_system.finetune.dataset import load_splits
 from dual_system.finetune.segment import load_subtasks
 from dual_system.finetune.system2 import balanced_order, choose_threshold, false_done_rate
