@@ -263,7 +263,6 @@ Hub checkpoint sizes, for planning: Qwen 2B 4.3 GB, 4B 8.9 GB, 8B 17.5 GB, SmolV
 ## Open questions
 
 - Answered: pi0.5 does follow subtask commands (run 10).
-- Can a System 2 judge progress without a trained VLM? Run 11 says not from images alone. Simulator-free alternatives are signals the robot has anyway (gripper width, contact, lift), or a judge trained on rollout frames.
+- Can a System 2 judge progress without a trained VLM? Runs 11 and 12 say not from images alone: the best untrained setup (Qwen 4B, before/after) reaches AUROC 0.71 with about 32% false "done" per frame. Untested: combining it with signals a real robot has anyway, so that a subtask counts as done only when both agree. A pick from the gripper closing on something (not fully shut) and the hand rising; a place from the gripper opening after holding and the hand moving away, with the VLM checking the target; open, close and turn on from the VLM alone, since no robot signal shows them. The comparison would be rollouts against oracle switching on the same scenes.
 - Does SmolVLA learn to follow subtask commands if the top layers of its language model also train, or if gibberish frames are trained to stay still? Run 9 shows that training the expert alone does not.
 - Do the actions actually change at a command switch? The queue clearing is unit-tested, but actions were not compared at the switch.
-- Which VLM, if any, can judge progress? The perception benchmark answers this.
