@@ -10,6 +10,7 @@ Styles, each built from the subtask text:
   camera    tells the model which camera shows the result and what to look for there
   choice    lettered descriptions of the possible states, one of them the finished one
   describe  one sentence on what is visible, then the answer
+  scene_only  the state question with the scene camera only
   one_camera  only the camera where the result shows: the wrist for a grasp, the scene for everything else
   before_after  the scene at the start of the subtask next to the scene and wrist now, asked to compare
 Besides the generated answer, the probability of the finished answer is read from the first answer token (not for describe).
@@ -29,7 +30,7 @@ from ..knowledge import StaticRetriever
 from .demo_judge import SMOLVLM_KWARGS
 from .perception import MODELS
 
-STYLES = ("finished", "state", "negated", "camera", "choice", "describe", "one_camera", "before_after")
+STYLES = ("finished", "state", "negated", "camera", "choice", "describe", "scene_only", "one_camera", "before_after")
 CAMS = "The first image is the scene camera, the second the wrist camera on the gripper."
 NOW = [("now", "agent"), ("now", "wrist")]
 
@@ -103,6 +104,9 @@ def build(step: str, style: str, retriever) -> dict:
 
 def _build(step: str, style: str, retriever) -> dict:
     p = parse_step(step)
+    if style == "scene_only":
+        return dict(prompt=f"The image is from the scene camera.\n{_state(p)}\nAnswer with one word: yes or no.",
+                    type="yesno", done="yes", images=[("now", "agent")])
     if style == "one_camera":  # the camera where the result shows: the wrist for a grasp, the scene for everything else
         if p["kind"] == "pick":
             return dict(prompt="The image is from the wrist camera on the gripper. A held object sits between the two fingers, "
