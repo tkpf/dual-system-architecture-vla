@@ -14,6 +14,7 @@ The `data/` folder is not committed. Folder names below refer to the local copy.
 6. **Training only SmolVLA's action expert on subtasks did not make it follow language.** After 600 steps, validation loss fell from 0.53 to 0.32, but actions differed less between a real command and gibberish than with the stock model (0.172 vs 0.209). Training was stopped there (run 9).
 7. **Stock pi0.5 already follows subtask commands; finetuning it on relabelled demos made it slightly worse.** With oracle switching it did 16/17 subtasks with real commands and 3/17 with gibberish. After 400 steps of expert-only training, shifted starts reached 17/28 goals against 21/28 for stock (run 10).
 8. **No untrained VLM up to Qwen 8B judges reliably whether a subtask is finished.** On labelled demo frames, "Is this subtask finished?" scored at chance for every model. Asking about the visible state was better but still weak: Qwen 8B 0.64, with 30% false "done" (run 11).
+9. **Showing the frame from the start of the subtask helps Qwen 4B and 8B most among nine prompt styles, but not enough.** AUROC rose from 0.64–0.66 to 0.71–0.72; still about 32% false "done" at the best threshold. One camera instead of two, describing first and multiple choice did not beat it (run 12).
 
 ## Runs
 
@@ -193,6 +194,56 @@ Balanced accuracy averaged over pick, place and act, interval from resampling ep
 - Asked whether a subtask is finished, every model mostly says "no", including on frames where the wrist camera shows the bowl gripped and lifted (checked by eye). The written finish condition does not help.
 - Asking about the visible state ("Is the bowl held between the gripper fingers and lifted above the table?") helps every model. Qwen 8B is best on act subtasks (0.78), but no model reaches a usable level: Qwen's false "done" rates of 26–49% would skip subtasks.
 - Larger is not clearly better: the 8B interval overlaps the 2B and 4B ones.
+
+### 12. Prompt styles for the VLM judge
+
+Folder `data/20261102-1704/vlm` (`prompt_answers_*.jsonl`, `prompt_report.txt`), commits `1806317` to `3d4c6d6`, `eval.judge_prompts`, L4. Same 324 questions as run 11. All nine styles for Qwen 2B and 4B; the first five for Qwen 8B and SmolVLM.
+
+Each style asks about the same frame differently (prompts in `judge_prompts.py`):
+- **finished**: "Is this subtask finished?" with its finish condition (run 11's prompt)
+- **state**: a question about the visible result, e.g. "Is the top drawer open?", both cameras
+- **negated**: the opposite question, "Is the top drawer still closed?"
+- **camera**: says which camera shows the result and what it looks like there
+- **choice**: lettered states, the finished one never first
+- **describe**: one sentence on what is visible, then yes or no
+- **scene_only**: the state question, scene camera only
+- **one_camera**: the wrist camera for a pick, the scene camera otherwise
+- **before_after**: the scene at the start of the subtask, the scene now and the wrist now, asked to compare
+
+Besides the answer, the probability of the finished answer is read from the first answer token. AUROC uses it without any threshold; "threshold acc." picks a threshold on half the episodes and scores the other half; false "done" is at that threshold.
+
+| Model | Style | Answer acc. | Says done | AUROC [95%] | Threshold acc. | False done | s/answer |
+|---|---|---|---|---|---|---|---|
+| Qwen 2B | finished | 0.52 | 0.09 | 0.59 [0.55, 0.63] | 0.54 | 0.39 | 0.22 |
+| | state | 0.56 | 0.54 | 0.61 [0.57, 0.66] | 0.58 | 0.61 | 0.21 |
+| | negated | 0.50 | 0.00 | 0.52 [0.48, 0.56] | 0.51 | 0.79 | 0.21 |
+| | camera | 0.55 | 0.89 | **0.66** [0.61, 0.70] | 0.62 | 0.32 | 0.21 |
+| | choice | 0.53 | 0.95 | 0.62 [0.58, 0.67] | 0.56 | 0.22 | 0.21 |
+| | describe | 0.53 | 0.64 | - | - | - | 1.00 |
+| | scene_only | 0.57 | 0.42 | 0.59 [0.55, 0.63] | 0.56 | 0.44 | 0.20 |
+| | one_camera | 0.58 | 0.80 | 0.61 [0.56, 0.65] | 0.61 | 0.63 | 0.21 |
+| | before_after | 0.57 | 0.49 | 0.61 [0.55, 0.66] | 0.57 | 0.46 | 0.22 |
+| Qwen 4B | finished | 0.56 | 0.12 | 0.64 [0.60, 0.69] | 0.60 | 0.28 | 0.27 |
+| | state | 0.56 | 0.32 | 0.64 [0.59, 0.69] | 0.59 | 0.47 | 0.26 |
+| | negated | 0.60 | 0.46 | 0.60 [0.55, 0.65] | 0.58 | 0.45 | 0.26 |
+| | camera | 0.60 | 0.21 | 0.66 [0.62, 0.70] | 0.61 | 0.26 | 0.26 |
+| | choice | 0.58 | 0.69 | 0.60 [0.56, 0.66] | 0.57 | 0.62 | 0.26 |
+| | describe | 0.49 | 0.44 | - | - | - | 1.56 |
+| | scene_only | 0.57 | 0.22 | 0.64 [0.60, 0.69] | 0.58 | 0.44 | 0.25 |
+| | one_camera | 0.61 | 0.37 | 0.64 [0.59, 0.70] | 0.61 | 0.26 | 0.24 |
+| | before_after | 0.64 | 0.73 | **0.71** [0.68, 0.76] | **0.66** | 0.32 | 0.29 |
+| Qwen 8B | state | 0.59 | 0.37 | 0.66 [0.60, 0.71] | 0.59 | 0.38 | 0.37 |
+| | before_after | 0.63 | 0.60 | 0.72 [0.67, 0.76] | 0.64 | 0.32 | 0.45 |
+| SmolVLM | state | 0.54 | 0.11 | 0.60 [0.56, 0.64] | 0.57 | 0.31 | 0.56 |
+| | before_after | 0.51 | 0.34 | 0.53 [0.51, 0.57] | 0.52 | 0.53 | 0.78 |
+
+Qwen 8B and SmolVLM on the other first-pass styles are in `prompt_report.txt`; they were not better than these rows.
+
+- **Best per model:** Qwen 4B with before_after; Qwen 2B with camera (where to look and what a held object looks like). Before_after does nothing for Qwen 2B and hurts SmolVLM, which seems to handle three images poorly.
+- **One image** (scene_only, one_camera) ranks frames no better than both cameras. one_camera lowers false "done" for Qwen 4B (0.47 to 0.26) at equal AUROC.
+- **Describing first** costs 4–6 times the time and is not better. The sentences are often wrong: Qwen 2B described the gripper "holding a plate" in frames where it held nothing.
+- **Negated questions** do not cancel the lean towards one answer: Qwen 2B answered "no" to every negated question, so it says "not finished" either way.
+- **The old "finished" prompt ranks above chance** (AUROC 0.59–0.64); its low accuracy in run 11 was mostly the "no" lean, which a threshold corrects. Every style still leaves about a third of unfinished frames called "done" or misses many finished ones.
 
 ## Practical measurements
 
