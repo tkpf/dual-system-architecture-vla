@@ -35,6 +35,14 @@ Use batch 16.
 ## What the first SmolVLA run showed
 Training only the action expert (`train_expert_only=True`, VLM fully frozen) fitted the subtask data: validation loss went 0.53, 0.39, 0.32 at steps 200, 400, 600. Language response, the action difference between the real command and gibberish, fell instead: 0.177, 0.174, 0.172, against 0.209 for the stock model. In rollouts gibberish did about as well as the real commands. So watch language response, not loss: low loss here means the expert reads the phase from the images. The next try should train the top language layers too, or add gibberish frames whose target is to stay still. Details: run 9 in `docs/EXPERIMENTS.md`.
 
+## pi0.5 (L4, 24 GB)
+- `--type pi05`: `train_expert_only` leaves 693M parameters trainable. Batch 8 runs out of memory without `--checkpointing`; with it, 17 GB and 0.23 steps/s. Checkpoints are 1.4 GB of weights (bf16) plus 4.2 GB optimizer on the runtime.
+- Stock pi0.5 already follows subtask commands, and 400 steps on relabelled demos made it slightly worse (run 10 in `docs/EXPERIMENTS.md`). Language response falls during training even when rollouts show the model follows commands, so judge by `eval.atomic`, not by that number.
+- Training and rollouts do not fit on the GPU together. Kill training by pid (`ps -eo pid,args | grep '[f]inetune.system1 train'`), export, evaluate, resume.
+
+## Downloads of many parts
+Only one `files.download` per cell run arrives reliably. 14 calls in one run, with or without pauses between them, delivered one part or none. `sync.download` queues the parts and sends the first; call `sync.send_pending()` once per cell run until it returns 0, checking locally that each part arrived.
+
 ## Not yet run on a GPU
 `collect_judge.py`, `system2.py` and the reasoner's `yes_no` phase check with an adapter are only unit-tested. Expect first-run fixes, for example in how `images_kwargs` reaches the SmolVLM processor in a batch.
 

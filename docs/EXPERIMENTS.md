@@ -11,6 +11,8 @@ The `data/` folder is not committed. Folder names below refer to the local copy.
 3. **The whole instruction beats atomic commands on `libero_goal`.** pi0.5 alone scored 12/12 across shifted and stored starts, and only 3/8 on scheduled atomic commands from shifted starts (different seeds).
 4. **System 2's main failure is perception.** Qwen 2B says a glowing red burner is dark and a held bowl is on the table, so better prompts alone did not help.
 5. **pi0.5 often does not obey command boundaries.** It sometimes finishes the task under a command that means something else.
+7. **Stock pi0.5 already follows subtask commands; finetuning it on relabelled demos made it slightly worse.** With oracle switching it did 16/17 subtasks with real commands and 3/17 with gibberish. After 400 steps of expert-only training, shifted starts reached 17/28 goals against 21/28 for stock (run 10).
+8. **No untrained VLM up to Qwen 8B judges reliably whether a subtask is finished.** On labelled demo frames, "Is this subtask finished?" scored at chance for every model. Asking about the visible state was better but still weak: Qwen 8B 0.64, with 30% false "done" (run 11).
 6. **Training only SmolVLA's action expert on subtasks did not make it follow language.** After 600 steps, validation loss fell from 0.53 to 0.32, but actions differed less between a real command and gibberish than with the stock model (0.172 vs 0.209). Training was stopped there (run 9).
 
 ## Runs
@@ -149,6 +151,49 @@ Rollouts with `eval.atomic`: the next command is issued when the simulator says 
 - Neither model ran on into the next subtask when kept on the first command (0/3 and 0/2).
 - One episode per cell: these are signs, not results. The likely reading is that the expert learned to infer the phase from the images, and the frozen VLM gives it no way to make commands easier to tell apart.
 
+### 10. pi0.5 on subtasks: stock, and finetuned for 400 steps
+
+Folder `data/20261102-1704` (`pi05_eval`, `pi05_shift`, `pi05/checkpoints/step_0000400`), L4 GPU, commits `717fdc7` to `8feba82`. Start `lerobot/pi05_libero_finetuned_v044`, `train_expert_only=True` as LeRobot defines it: 693M trainable parameters, PaliGemma frozen. Batch 8 with gradient checkpointing, 0.23 steps/s, 17 GB. Same data, splits and held chunks as run 9.
+
+Validation loss went from 0.60 (step 20) to 0.14 (step 400). Language response fell from 0.176 to 0.162, but stock pi0.5 already follows commands in rollouts at 0.176, so for pi0.5 this measure does not track command following. Rollouts decide.
+
+`eval.atomic`, oracle switching, same scenes as run 9. Stored start (state A, init state 1, one episode each):
+
+| | Stock | Step 400 |
+|---|---|---|
+| Real: subtasks / goals | 16/17, 6/7 | 16/17, 6/7 |
+| Gibberish: subtasks / goals | 3/17, 1/7 | 5/17, 2/7 |
+| Ran into the next subtask | 1/7 | 1/7 |
+
+Shifted starts (states C and B, init states 1 and 2, paired seeds):
+
+| | Stock | Step 400 |
+|---|---|---|
+| Real: goals | 21/28 | 17/28 |
+| Real: subtasks | 49/68 | 42/68 |
+| State B (about 19 cm): goals | 8/14 | 5/14 |
+| Gibberish: goals / subtasks | 4/14, 11/34 | 2/14, 6/34 |
+| Ran into the next subtask | 1/11 | 1/9 |
+
+All 4 real-command pairs that differed favoured stock (sign test p = 0.12). Training was stopped at step 400. The demos are the ones the checkpoint was trained on, relabelled, so they hold nothing new for a model that already links subtask text to motion.
+
+### 11. Untrained VLMs judging finished subtasks on demo frames
+
+Folder `data/20261102-1704/vlm`, commit `88bf39e`, `eval.demo_judge`. 324 questions from 40 demo episodes (one per task), 138 finished. Labels from the subtask boundaries; frames within 4 steps of a boundary are left out. No rollouts and no failures, so this is the easy case.
+
+Balanced accuracy averaged over pick, place and act, interval from resampling episodes:
+
+| Model | finished? (both cameras) | + finish condition | state question | False "done", state | Peak GPU | Time per answer |
+|---|---|---|---|---|---|---|
+| Qwen3-VL 2B | 0.50 | 0.51 | 0.60 [0.52, 0.68] | 0.49 | 4.0 GB | 0.13 s |
+| Qwen3-VL 4B | 0.53 | 0.54 | 0.58 [0.53, 0.68] | 0.26 | 8.4 GB | 0.15 s |
+| Qwen3-VL 8B, bf16 | 0.52 | 0.52 | 0.64 [0.53, 0.71] | 0.30 | 16.4 GB | 0.22 s |
+| SmolVLM2 2.2B | 0.50 | 0.49 | 0.57 [0.51, 0.63] | 0.08 | 4.3 GB | 0.30 s |
+
+- Asked whether a subtask is finished, every model mostly says "no", including on frames where the wrist camera shows the bowl gripped and lifted (checked by eye). The written finish condition does not help.
+- Asking about the visible state ("Is the bowl held between the gripper fingers and lifted above the table?") helps every model. Qwen 8B is best on act subtasks (0.78), but no model reaches a usable level: Qwen's false "done" rates of 26–49% would skip subtasks.
+- Larger is not clearly better: the 8B interval overlaps the 2B and 4B ones.
+
 ## Practical measurements
 
 | Measure | Value |
@@ -166,7 +211,8 @@ Hub checkpoint sizes, for planning: Qwen 2B 4.3 GB, 4B 8.9 GB, 8B 17.5 GB, SmolV
 
 ## Open questions
 
-- Does pi0.5 follow commands at all? The schedule probe had no gibberish control. Run one before claiming it does. `eval.atomic` with its gibberish and stop runs would answer this on the same scenes as run 9, once it accepts `--type pi05`.
+- Answered: pi0.5 does follow subtask commands (run 10).
+- Can a System 2 judge progress without a trained VLM? Run 11 says not from images alone. Simulator-free alternatives are signals the robot has anyway (gripper width, contact, lift), or a judge trained on rollout frames.
 - Does SmolVLA learn to follow subtask commands if the top layers of its language model also train, or if gibberish frames are trained to stay still? Run 9 shows that training the expert alone does not.
 - Do the actions actually change at a command switch? The queue clearing is unit-tested, but actions were not compared at the switch.
 - Which VLM, if any, can judge progress? The perception benchmark answers this.
