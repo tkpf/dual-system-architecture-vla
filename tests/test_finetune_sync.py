@@ -165,3 +165,23 @@ def test_join_waits_for_the_browser_and_keeps_parts_of_a_bad_zip(tmp_path):
     Path(parts[1]).write_bytes(b"0" * len(content))  # complete but wrong
     assert "fails its check" in pull_finetune.join_parts(tmp_path)[0]
     assert len(list(tmp_path.glob("*.p0*"))) == 4 and not zip_path.exists()
+
+
+def test_downloads_go_out_one_per_call(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    sent = []
+    colab = types.ModuleType("google.colab")
+    colab.files = types.SimpleNamespace(download=sent.append)
+    monkeypatch.setitem(sys.modules, "google", types.ModuleType("google"))
+    monkeypatch.setitem(sys.modules, "google.colab", colab)
+    zip_path = tmp_path / "finetune_results_20261102_000000.zip"
+    _real_zip(zip_path)
+    pending = str(tmp_path / "pending.json")
+    monkeypatch.setattr(sync, "PART_BYTES", 1000)
+    assert sync.download(str(zip_path), pending) == 3 and len(sent) == 1
+    while sync.send_pending(pending):
+        pass
+    assert [Path(p).name[-7:] for p in sent] == ["p01of04", "p02of04", "p03of04", "p04of04"]
+    assert sync.send_pending(pending) == 0 and len(sent) == 4

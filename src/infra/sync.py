@@ -136,8 +136,9 @@ def to_browser_new(res_dir: str | None = None, prefix: str = "finetune_results")
 PART_BYTES = 100 * 2**20  # 120 MB arrived through files.download, 421 MB never did
 
 
-def split(path: str, part_bytes: int = PART_BYTES) -> list[str]:
+def split(path: str, part_bytes: int | None = None) -> list[str]:
     """path itself if it is small, otherwise parts named <path>.pNNofMM that scripts/pull_finetune.py joins again."""
+    part_bytes = part_bytes or PART_BYTES
     size = os.path.getsize(path)
     if size <= part_bytes:
         return [path]
@@ -152,12 +153,28 @@ def split(path: str, part_bytes: int = PART_BYTES) -> list[str]:
     return parts
 
 
-def download(path: str) -> None:
-    """Downloads path, in parts if it is large. Also resends a zip whose download never arrived."""
-    from google.colab import files
+PENDING = "/content/PENDING_DOWNLOADS.json"
 
-    for part in split(path):
-        files.download(part)
+
+def download(path: str, pending: str = PENDING) -> int:
+    """Queues path, in parts if it is large, and sends the first. Also resends a zip whose download never arrived.
+    Only one download per cell run arrives reliably: 14 parts in one run, with or without pauses, arrived as one or none.
+    So the rest wait in the queue for send_pending, one cell run each. Returns how many are still queued."""
+    queue = json.load(open(pending)) if os.path.exists(pending) else []
+    json.dump(queue + split(path), open(pending, "w"))
+    return send_pending(pending)
+
+
+def send_pending(pending: str = PENDING) -> int:
+    """Sends the next queued download. Call once per cell run until it returns 0."""
+    queue = json.load(open(pending)) if os.path.exists(pending) else []
+    if queue:
+        from google.colab import files
+
+        files.download(queue[0])
+        print("sent", os.path.basename(queue[0]), "-", len(queue) - 1, "left")
+        json.dump(queue[1:], open(pending, "w"))
+    return max(len(queue) - 1, 0)
 
 
 def remove_confirmed(res_dir: str, confirmed: dict, protect: list[str], low_gb: float = 10.0, shutil_module=None) -> list[str]:
