@@ -25,6 +25,7 @@ MODELS = {
     "smolvlm": dict(model="HuggingFaceTB/SmolVLM2-2.2B-Instruct"),
     "qwen4b": dict(model="Qwen/Qwen3-VL-4B-Instruct"),
     "qwen8b": dict(model="Qwen/Qwen3-VL-8B-Instruct", quantize=True),  # about 18 GB in fp16, more than a T4 has
+    "qwen8b_full": dict(model="Qwen/Qwen3-VL-8B-Instruct"),  # fits a 24 GB L4 without quantizing
 }
 MODES = ("both", "scene", "definition")
 BOWL, MOKA = "akita_black_bowl_1", "moka_pot_1"

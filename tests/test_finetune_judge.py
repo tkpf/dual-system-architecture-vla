@@ -117,3 +117,16 @@ def test_judge_uses_the_threshold_with_an_adapter():
     assert r.phase_check("x", ["a"], 0, "d", [], []).parsed == {"step": "running"}
     r._done_probability = lambda prompt, images: 0.8
     assert r.phase_check("x", ["a"], 0, "d", [], []).parsed == {"step": "done"}
+
+
+def test_demo_questions_keep_away_from_the_boundary():
+    from dual_system.eval.demo_judge import MARGIN, questions_for
+
+    row = dict(length=100, phases=[dict(command="pick up the bowl", kind="pick", start=0, end=40), dict(command="place the bowl", kind="place", start=40, end=95)])
+    qs = questions_for(row, np.random.default_rng(0))
+    for q in qs:
+        phase = next(p for p in row["phases"] if p["command"] == q["step"])
+        assert q["t"] <= phase["end"] - 1 - MARGIN if not q["done"] else q["t"] >= phase["end"] - 1 + MARGIN
+        assert q["t"] < row["length"]
+    assert sum(q["done"] for q in qs if q["kind"] == "pick") == 2
+    assert sum(q["done"] for q in qs if q["kind"] == "place") == 0  # the demo ends too soon after it

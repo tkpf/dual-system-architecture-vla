@@ -1,6 +1,6 @@
 """How well does a System 1 carry out subtasks? No VLM: the next command is issued when the simulator says the phase is done.
 
-    python -m dual_system.eval.atomic --path <checkpoint> --name stock --res <res> --split select [--seeds 1] [--states A]
+    python -m dual_system.eval.atomic --path <checkpoint> --name stock --res <res> --split select [--type pi05] [--seeds 1] [--states A]
     python -m dual_system.eval.atomic --report <res>
 
 Each phase can succeed on its own, so a later subtask is not judged on an earlier failure: a phase that runs out of its step
@@ -109,7 +109,7 @@ def main(a) -> None:
     key = lambda r: (r["task"], r["init_state"], r["robot_state"], r["seed"], r["control"])
     finished = {key(json.loads(line)) for line in open(path, encoding="utf-8")} if path.exists() else set()
     out = open(path, "a", encoding="utf-8")
-    system1 = build_system1(dict(type="smolvla", path=a.path, n_action_steps=10))
+    system1 = build_system1(dict(type=a.type, path=a.path, n_action_steps=10))
     init_states = splits["init_states"][a.split][:a.init_states]
     for group, tasks in (("seen", SEEN), ("unseen", splits["unseen_tasks"])):
         for task in tasks:
@@ -166,6 +166,7 @@ def report(res: Path) -> str:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--path")
+    p.add_argument("--type", choices=["smolvla", "pi0", "pi05"], default="smolvla")
     p.add_argument("--name")
     p.add_argument("--res")
     p.add_argument("--report")

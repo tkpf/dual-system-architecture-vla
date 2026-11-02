@@ -48,6 +48,6 @@ def check_renderer() -> str:
     r = sh(f"{EGL_ENV}; python - <<'E'\n{code}\nE")
     out = r.stdout.strip()
     print(out, "(harmless EGL cleanup error at exit is expected)" if r.stderr else "")
-    if "Tesla" not in out:
-        print("WARNING: not the T4 renderer (llvmpipe is ~12x slower). Check /content/nvidia/gl and the env exports.")
+    if "llvmpipe" in out or not any(name in out for name in ("Tesla", "NVIDIA")):
+        print("WARNING: not the NVIDIA renderer (llvmpipe is ~12x slower). Check /content/nvidia/gl and the env exports.")
     return out
