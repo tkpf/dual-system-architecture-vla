@@ -130,3 +130,13 @@ def test_demo_questions_keep_away_from_the_boundary():
         assert q["t"] < row["length"]
     assert sum(q["done"] for q in qs if q["kind"] == "pick") == 2
     assert sum(q["done"] for q in qs if q["kind"] == "place") == 0  # the demo ends too soon after it
+
+
+def test_every_subtask_has_a_state_question():
+    from dual_system.eval.demo_judge import state_question
+
+    commands = {c for groups in load_subtasks().values() for g in groups for c in (g.get("act"), g.get("pick"), g.get("place")) if c}
+    for c in commands:
+        assert "finished" not in state_question(c), c
+    assert state_question("pick up the other moka pot") == "Is the moka pot held between the gripper fingers and lifted above the table?"
+    assert state_question("place the bowl on top of the cabinet") == "Is the bowl resting on top of the cabinet, with the gripper no longer holding it?"

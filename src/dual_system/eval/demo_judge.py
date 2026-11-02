@@ -8,12 +8,13 @@ The boundaries come from simulator truth on the replayed demos, so every frame i
 frame after its end is "finished". Frames within a few steps of a boundary are left out, because the exact step is uncertain.
 Demos contain no failures, so this measures seeing the result, not catching a drop; eval.perception covers rollouts.
 Modes: plain = both cameras and the subtask, definition = plus its finish condition, scene = definition with the scene camera
-only. Scores are balanced accuracy per subtask kind, averaged, with an interval that resamples whole episodes.
+only, state = both cameras and a question about the visible result ("Is the bowl held ... and lifted?") instead of "finished". Scores are balanced accuracy per subtask kind, averaged, with an interval that resamples whole episodes.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -21,7 +22,7 @@ import numpy as np
 from ..knowledge import StaticRetriever
 from .perception import MODELS, balanced_accuracy, episode_interval, parse_yes_no
 
-MODES = ("plain", "definition", "scene")
+MODES = ("plain", "definition", "scene", "state")
 MARGIN = 4
 BEFORE, AFTER = (0.3, 0.7), (MARGIN + 2, MARGIN + 12)
 SMOLVLM_KWARGS = {"do_image_splitting": False}
@@ -44,7 +45,30 @@ def questions_for(row: dict, rng: np.random.Generator) -> list[dict]:
     return out
 
 
+def state_question(step: str) -> str:
+    """The subtask's result as a question about what is visible, the form the rollout benchmark asked in."""
+    m = re.match(r"pick up (?:a |the )?(.+?)$", step)
+    if m:
+        return f"Is the {re.sub(r'^(other )', '', m.group(1))} held between the gripper fingers and lifted above the table?"
+    m = re.match(r"place (?:the )?(.+?) (on top of|on|in|to the right of) (.+)$", step)
+    if m:
+        return f"Is the {m.group(1)} resting {m.group(2)} {m.group(3)}, with the gripper no longer holding it?"
+    m = re.match(r"(open|close) (?:the )?(.+)$", step)
+    if m:
+        return f"Is the {m.group(2)} {'open' if m.group(1) == 'open' else 'fully closed'}?"
+    m = re.match(r"turn on (?:the )?(.+)$", step)
+    if m:
+        return f"Is the {m.group(1)} turned on?"
+    m = re.match(r"push (?:the )?(.+?) to (.+)$", step)
+    if m:
+        return f"Is the {m.group(1)} at {m.group(2)}?"
+    return f'Is "{step}" finished?'
+
+
 def prompt_for(step: str, mode: str, retriever) -> str:
+    if mode == "state":
+        return ("The first image is the scene camera, the second the wrist camera on the gripper.\n"
+                f"{state_question(step)}\nAnswer with one word: yes or no.")
     cams = "The image shows a robot arm from the scene camera." if mode == "scene" else \
         "The first image is the scene camera, the second the wrist camera on the gripper."
     condition = "" if mode == "plain" else f"\nIt is finished only when {retriever.phase_definition(step)}"
