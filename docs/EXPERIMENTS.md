@@ -11,9 +11,9 @@ The `data/` folder is not committed. Folder names below refer to the local copy.
 3. **The whole instruction beats atomic commands on `libero_goal`.** pi0.5 alone scored 12/12 across shifted and stored starts, and only 3/8 on scheduled atomic commands from shifted starts (different seeds).
 4. **System 2's main failure is perception.** Qwen 2B says a glowing red burner is dark and a held bowl is on the table, so better prompts alone did not help.
 5. **pi0.5 often does not obey command boundaries.** It sometimes finishes the task under a command that means something else.
+6. **Training only SmolVLA's action expert on subtasks did not make it follow language.** After 600 steps, validation loss fell from 0.53 to 0.32, but actions differed less between a real command and gibberish than with the stock model (0.172 vs 0.209). Training was stopped there (run 9).
 7. **Stock pi0.5 already follows subtask commands; finetuning it on relabelled demos made it slightly worse.** With oracle switching it did 16/17 subtasks with real commands and 3/17 with gibberish. After 400 steps of expert-only training, shifted starts reached 17/28 goals against 21/28 for stock (run 10).
 8. **No untrained VLM up to Qwen 8B judges reliably whether a subtask is finished.** On labelled demo frames, "Is this subtask finished?" scored at chance for every model. Asking about the visible state was better but still weak: Qwen 8B 0.64, with 30% false "done" (run 11).
-6. **Training only SmolVLA's action expert on subtasks did not make it follow language.** After 600 steps, validation loss fell from 0.53 to 0.32, but actions differed less between a real command and gibberish than with the stock model (0.172 vs 0.209). Training was stopped there (run 9).
 
 ## Runs
 
