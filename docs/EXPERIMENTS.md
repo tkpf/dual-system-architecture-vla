@@ -241,7 +241,7 @@ Qwen 8B and SmolVLM on the other first-pass styles are in `prompt_report.txt`; t
 
 - **Best per model:** Qwen 4B with before_after; Qwen 2B with camera (where to look and what a held object looks like). Before_after does nothing for Qwen 2B and hurts SmolVLM, which seems to handle three images poorly.
 - **One image** (scene_only, one_camera) ranks frames no better than both cameras. one_camera lowers false "done" for Qwen 4B (0.47 to 0.26) at equal AUROC.
-- **Describing first** costs 4–6 times the time and is not better. The sentences are often wrong: Qwen 2B described the gripper "holding a plate" in frames where it held nothing.
+- **Describing first** costs 4–6 times the time and is not better. The sentences can be wrong: in "open the middle drawer", where there is nothing to pick up, Qwen 2B described the gripper as holding a plate or a lid.
 - **Negated questions** do not cancel the lean towards one answer: Qwen 2B answered "no" to every negated question, so it says "not finished" either way.
 - **The old "finished" prompt ranks above chance** (AUROC 0.59–0.64); its low accuracy in run 11 was mostly the "no" lean, which a threshold corrects. Every style still leaves about a third of unfinished frames called "done" or misses many finished ones.
 
