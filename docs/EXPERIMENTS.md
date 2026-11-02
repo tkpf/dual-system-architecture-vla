@@ -16,6 +16,7 @@ The `data/` folder is not committed. Folder names below refer to the local copy.
 8. **No untrained VLM up to Qwen 8B judges reliably whether a subtask is finished.** On labelled demo frames, "Is this subtask finished?" scored at chance for every model. Asking about the visible state was better but still weak: Qwen 8B 0.64, with 30% false "done" (run 11).
 9. **Showing the frame from the start of the subtask helps Qwen 4B and 8B most among nine prompt styles, but not enough.** AUROC rose from 0.64–0.66 to 0.71–0.72; still about 32% false "done" at the best threshold. One camera instead of two, describing first and multiple choice did not beat it (run 12).
 10. **A System 2 that switches on gripper signals, with the VLM only for "turn on", matched oracle switching in a small first test.** In 16 episodes, fused System 2, passthrough and oracle each succeeded 4/4; keeping the first atomic command (frozen) succeeded 1/4. pi0.5 alone also succeeded everywhere, so these scenes cannot show System 2 helping (run 13).
+11. **On `libero_10` scenes where pi0.5 alone failed, every System 2 condition rescued the same 2 of 4, and the other 2 failed even with oracle switching.** Frozen, fused and oracle each reached 2/4 against 0/4 for passthrough. The rescue therefore does not come from progress tracking, and the remaining failures are System 1 execution. In two-object tasks the gripper signal fired on grasps the simulator did not count for the named object (10 of 11 signal switches) (run 14).
 
 ## Runs
 
@@ -267,6 +268,26 @@ Episodes: init state 1, one seed, every condition on the same scene, start and s
 - **Tuning on the test starts:** the first smoke run (start C, bowl on the stove) failed, because the empty-grasp width was set from SmolVLA traces. pi0.5 holds the bowl rim at a width of 0.003 to 0.005, which the switcher read as closed on nothing. It interrupted the grasp twice and timed out. The width was set to 0.002 from the pi0.5 command-probe traces, so the start-C results are not fully independent of the tuning.
 - **What this does not show:** pi0.5 alone succeeded from these starts, so whether System 2 helps, and where the bottleneck is, needs scenes where passthrough fails, such as `libero_10` from start B (0/4 alone in run 4).
 
+### 14. Final dual system on `libero_10` scenes where pi0.5 alone fails
+
+Folder `data/20261103-0040` (`libero10_sel/final.jsonl` and `final_report.txt` for the 4 chosen scenes, `libero10_sel/screen_all.jsonl` for the screening, `libero10_sel/side_by_side/`, `libero10/videos/`), commit `0e825b4`, `eval.final --suite-tasks`, L4. Same System 1, System 2 and budgets as run 13 (150 steps per phase: 450 or 600 here).
+
+**Screening:** passthrough on all 10 `libero_10` tasks from start B, init state 1, one seed. It failed 5 of 10: tasks 1, 2, 6, 7 and 9. Tasks 1, 2, 6 and 7 were chosen, and frozen, fused and oracle were run on the same scene, start and seed. The scenes were chosen because passthrough failed, so passthrough's 0/4 is biased low: a re-run of the same scene can succeed.
+
+| `libero_10` task | passthrough | frozen | fused | oracle |
+|---|---|---|---|---|
+| 1 cream cheese box + butter in basket | fail | success, 474 | success, 571 | success, 375 |
+| 2 turn on stove + moka pot | fail | success, 190 | success, 191 | success, 186 |
+| 6 white mug on plate + pudding right of plate | fail | fail | fail | fail |
+| 7 alphabet soup + cream cheese box in basket | fail | fail | fail | fail |
+| **Total** | **0/4** | **2/4** | **2/4** | **2/4** |
+
+- **Rescued by every System 2 condition, frozen included:** a command that changes nothing during the episode rescued the same two scenes. The rescue therefore comes from a different first prompt, or from rollout noise, not from tracking progress. On the moka pot, frozen ("turn on the stove" for the whole episode) succeeded in 190 steps, as in run 13.
+- **Failed under oracle switching:** tasks 6 and 7. In task 6, oracle timed out on every phase: pi0.5 never completed the pick of the white mug from start B. In task 7, pi0.5 put the cream cheese box in the basket but never the alphabet soup. These are System 1 execution failures that no command switching fixes.
+- **Fused signals in two-object tasks:** 10 of 11 gripper-signal switches came while the simulator said the named object was not picked or placed. The signal shows that the gripper holds something, not what it holds. In task 7, the cream cheese box was in the basket by step 317 while the command still named the alphabet soup, so pi0.5 took the objects in a different order than the plan. Fused then ran through its commands early, without harm here.
+- **VLM stove check:** probability 0.26 to 0.55 before the burner came on at step 76, then 0.99 at 80 and 90. It switched at step 90.
+- **Bottleneck:** on these scenes it is System 1 execution. The two failures that remain under oracle switching are System 1's. System 2's errors (switches on the wrong object) cost nothing measurable here, because pi0.5 ignores which object the command names.
+
 ## Practical measurements
 
 | Measure | Value |
@@ -286,6 +307,6 @@ Hub checkpoint sizes, for planning: Qwen 2B 4.3 GB, 4B 8.9 GB, 8B 17.5 GB, SmolV
 ## Open questions
 
 - Answered: pi0.5 does follow subtask commands (run 10).
-- Can a System 2 judge progress without a trained VLM? Runs 11 and 12 say not from images alone: the best untrained setup (Qwen 4B, before/after) reaches AUROC 0.71 with about 32% false "done" per frame. Gripper signals for pick and place, with the VLM only for act subtasks, matched oracle switching in run 13 (16 episodes, easy scenes). Still open: the same on scenes where pi0.5 alone fails, with place switches and recoveries actually exercised.
+- Can a System 2 judge progress without a trained VLM? Runs 11 and 12 say not from images alone: the best untrained setup (Qwen 4B, before/after) reaches AUROC 0.71 with about 32% false "done" per frame. Gripper signals for pick and place, with the VLM only for act subtasks, matched oracle switching in run 13 (16 episodes, easy scenes). On `libero_10` scenes where pi0.5 alone fails (run 14), it did no better than a frozen command, and the signal cannot tell which object is held. Still open: checking the held object, for example with the wrist camera, and recoveries actually exercised.
 - Does SmolVLA learn to follow subtask commands if the top layers of its language model also train, or if gibberish frames are trained to stay still? Run 9 shows that training the expert alone does not.
 - Do the actions actually change at a command switch? The queue clearing is unit-tested, but actions were not compared at the switch.

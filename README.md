@@ -143,6 +143,17 @@ Full run details are in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
 Fused switches came 0 to 13 steps after simulator truth, and none was wrong. Atomic commands need a working switcher (frozen 1/4), but these scenes are easy for pi0.5 alone, so they cannot show System 2 helping. Side-by-side videos are made with `python -m dual_system.eval.final video <res>`.
 
+**On `libero_10` scenes where pi0.5 alone failed (run 14):** 4 of the 5 scenes that passthrough failed from start B, out of 10 screened.
+
+| Condition | Success |
+|---|---|
+| passthrough | 0/4 (chosen for failing) |
+| frozen | 2/4 |
+| fused System 2 | 2/4 |
+| oracle switching | 2/4 |
+
+All three System 2 conditions rescued the same two scenes, frozen included, so progress tracking is not what helped. The other two scenes failed even with oracle switching: the bottleneck there is System 1 execution.
+
 Earlier comparisons:
 
 | Comparison | System 1 alone, or first model | Dual, or second model |
@@ -198,7 +209,7 @@ Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in 
 |---|---|
 | **Counterfactual** | Partial. Run 13 compares removed (`passthrough`), frozen, fused and oracle System 2 on 16 episodes: frozen 1/4, the others 4/4. Shuffled commands are not implemented, and harder scenes are needed to see System 2 help |
 | **Error recovery** | Not answered. Offset start states exist, but mid-episode perturbations are not implemented. Recovery commands ("open the gripper", "move back to the home position") did not noticeably change the robot's behaviour in the probe |
-| **Bottleneck** | Preliminary: mainly System 2's perception. With pi0.5, System 1 reaches goals alone from the stored start, while Qwen 2B misreads the scene. System 1 also ignores command boundaries, so its share is not yet measured |
+| **Bottleneck** | With the final System 2: System 1 execution. On `libero_10` from start B, 2 of 4 scenes fail even with oracle switching (run 14). The earlier VLM-only System 2 failed on perception (runs 5, 11 and 12) |
 
 ## Deliverables still open
 
