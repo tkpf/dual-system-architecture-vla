@@ -9,7 +9,9 @@ unfinished frames called done) and that false verdicts ended healthy episodes. S
   act    (open, close, turn on, push) no robot signal shows these: the VLM's probability of "done" must stay above a
          threshold for `vlm_confirm` checks in a row, after a minimum time
   every phase also has a timeout, after which the next command is issued anyway
-Recovery: the gripper closed on nothing during a pick -> "open the gripper" for a few steps, then the pick again.
+Recovery: the gripper closed on nothing during a pick -> "open the gripper" for a few steps, then the pick again. With
+detect_drop, a release counts as a place only if the hand came down `drop_descent` while holding; a release in mid-air is a
+drop and sends the switcher back to the pick (off by default, so earlier runs keep their behaviour).
 Width is the sum of both finger positions: about 0.078 open, 0.003 to 0.005 when pi0.5 holds the thin bowl rim, about 0.014
 for the moka pot handle, and 0.001 to 0.0017 closed on nothing (pi0.5 command-probe traces). The bowl margin is thin, so a
 pick also needs the hand to rise.
@@ -59,13 +61,37 @@ class Switcher:
     def _on_new_phase(self) -> None:
         pass
 
+    def _back(self, t: int, reason: str) -> dict:
+        """The previous phase was undone, e.g. the object was dropped: issue it again."""
+        event = dict(t=t, phase=self.idx, command=self.phase["command"], reason=reason, steps=t - self.phase_start)
+        self.idx -= 1
+        self.phase_start = t
+        self.loose = 0
+        self._on_new_phase()
+        self.log.append(event)
+        return event
+
 
 class OracleSwitcher(Switcher):
-    """Simulator truth decides. The upper bound for any progress check."""
+    """Simulator truth decides. The upper bound for any progress check. With undo, a place phase goes back to its pick when
+    the simulator says the object has left the gripper for `undo_steps` steps without being placed."""
 
-    def update(self, t: int, truth: bool) -> dict | None:
+    def __init__(self, phases: list[dict], timeout: int = 150, undo: bool = False, undo_steps: int = 10):
+        super().__init__(phases, timeout)
+        self.undo, self.undo_steps = undo, undo_steps
+        self.reset()
+
+    def reset(self) -> None:
+        super().reset()
+        self.loose = 0
+
+    def update(self, t: int, truth: bool, gripped: bool | None = None) -> dict | None:
         if self.log and self.log[-1].get("all_done"):
             return None
+        if self.undo and self.phase["kind"] == "place" and self.idx > 0 and self.phases[self.idx - 1]["kind"] == "pick" and not truth:
+            self.loose = self.loose + 1 if gripped is False else 0
+            if self.loose >= self.undo_steps:
+                return self._back(t, "undone")
         if truth:
             return self._advance(t, "oracle", True)
         if t - self.phase_start >= self.timeout and self.idx + 1 < len(self.phases):
@@ -76,8 +102,10 @@ class OracleSwitcher(Switcher):
 class FusedSwitcher(Switcher):
     def __init__(self, phases: list[dict], timeout: int = 150, recover: bool = True, min_hold: int = 8, lift: float = 0.03,
                  min_empty: int = 6, recovery_steps: int = 15, max_retries: int = 2, vlm_every: int = 10,
-                 vlm_min_steps: int = 40, vlm_threshold: float = 0.8, vlm_confirm: int = 2):
+                 vlm_min_steps: int = 40, vlm_threshold: float = 0.8, vlm_confirm: int = 2, detect_drop: bool = False,
+                 drop_descent: float = 0.02, max_drops: int = 2):
         super().__init__(phases, timeout)
+        self.detect_drop, self.drop_descent, self.max_drops = detect_drop, drop_descent, max_drops
         self.recover, self.min_hold, self.lift, self.min_empty = recover, min_hold, lift, min_empty
         self.recovery_steps, self.max_retries = recovery_steps, max_retries
         self.vlm_every, self.vlm_min_steps, self.vlm_threshold, self.vlm_confirm = vlm_every, vlm_min_steps, vlm_threshold, vlm_confirm
@@ -87,12 +115,13 @@ class FusedSwitcher(Switcher):
     def reset(self) -> None:
         super().reset()
         self.vlm_probs = []
-        self.retries = 0
+        self.retries = self.drops = 0
         self._on_new_phase()
 
     def _on_new_phase(self) -> None:
         self.hold = self.empty = self.open_run = self.streak = 0
         self.hold_z = 0.0
+        self.peak_z = float("-inf")
         self.was_held = False
         self.recovering_until = None
         if self.idx > 0 and self.phase["kind"] == "place" and self.phases[self.idx - 1]["kind"] == "pick" and self.log \
@@ -115,6 +144,7 @@ class FusedSwitcher(Switcher):
 
         held = EMPTY_WIDTH < width < HELD_MAX
         if held:
+            self.peak_z = max(self.peak_z, z)
             self.hold += 1
             if self.hold == 1:
                 self.hold_z = z
@@ -127,6 +157,9 @@ class FusedSwitcher(Switcher):
         if kind == "pick" and self.hold >= self.min_hold and z - self.hold_z >= self.lift:
             return self._advance(t, "signal", truth)
         if kind == "place" and self.was_held and self.open_run >= 3:
+            if self.detect_drop and self.peak_z - z < self.drop_descent and self.drops < self.max_drops and self.idx > 0:
+                self.drops += 1
+                return self._back(t, "dropped")
             return self._advance(t, "signal", truth)
         if kind == "act" and vlm is not None and t - self.phase_start >= self.vlm_min_steps and t % self.vlm_every == 0:
             p = vlm()

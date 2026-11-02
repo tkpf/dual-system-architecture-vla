@@ -9,6 +9,9 @@ passthrough  no System 2: the whole instruction
 frozen       System 2 frozen after its first command: the first atomic command for the whole episode
 fused        System 2 switches atomic commands on gripper signals, a VLM for open and turn-on, and timeouts (system2/fused.py)
 fused_norec  the same without the empty-grasp recovery
+With --perturb drop, the gripper is forced open for PERTURB_STEPS steps once it has held something for PERTURB_AFTER steps
+in a row (the same robot-side rule in every condition), so the object falls. fused then also treats a release without a
+descent as a drop and goes back to the pick, and oracle goes back to the pick when the object has left the gripper.
 oracle       the simulator says when a phase is done: the ceiling for any progress check
 All conditions get the same step budget (150 per phase) and end at the environment's success. Every step is also scored
 against simulator truth, so each switch of `fused` is logged as right or early, and its lag behind the truth is measured.
@@ -27,6 +30,7 @@ from .atomic import PHASE_BUDGET, SEEN, phase_done, plan_for
 from .command_probe import ROBOT_STATES, object_heights
 
 CONDITIONS = ["passthrough", "frozen", "fused", "oracle"]
+PERTURB_AFTER, PERTURB_STEPS = 20, 10
 ALL_CONDITIONS = CONDITIONS + ["fused_norec"]
 
 
@@ -75,9 +79,9 @@ class VlmJudge:
 
 
 def run_episode(world, system1, state, seed: int, phases: list[dict], condition: str, judge: VlmJudge | None, instruction: str,
-                frames: list | None) -> dict:
+                frames: list | None, perturb: str | None = None) -> dict:
     from ..rollout import seed_everything
-    from ..system2.fused import FusedSwitcher, OracleSwitcher
+    from ..system2.fused import EMPTY_WIDTH, HELD_MAX, FusedSwitcher, OracleSwitcher
 
     seed_everything(seed)
     system1.reset()
@@ -87,9 +91,9 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], condition:
 
     switcher = None
     if condition == "oracle":
-        switcher = OracleSwitcher(phases, timeout=PHASE_BUDGET)
+        switcher = OracleSwitcher(phases, timeout=PHASE_BUDGET, undo=perturb == "drop")
     elif condition in ("fused", "fused_norec"):
-        switcher = FusedSwitcher(phases, timeout=PHASE_BUDGET, recover=condition == "fused")
+        switcher = FusedSwitcher(phases, timeout=PHASE_BUDGET, recover=condition == "fused", detect_drop=perturb == "drop" and condition == "fused")
     switcher and switcher.reset()
     command = instruction if condition == "passthrough" else phases[0]["command"] if condition == "frozen" else switcher.command
     system1.set_command(command)
@@ -97,8 +101,17 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], condition:
 
     commands, events, truth_at = [(0, command)], [], {}
     success, first_success = False, None
+    held_run, perturbed_at = 0, None
     while obs.t < budget:
-        obs, success = world.step(system1.act(obs))
+        action = system1.act(obs)
+        if perturb == "drop" and perturbed_at is None and held_run >= PERTURB_AFTER:
+            perturbed_at = obs.t
+        forced = perturbed_at is not None and obs.t < perturbed_at + PERTURB_STEPS
+        if forced:
+            action = np.array(action, dtype=float, copy=True)
+            action[6] = -1.0  # open: positive closes the gripper
+        obs, success = world.step(action)
+        held_run = held_run + 1 if EMPTY_WIDTH < obs.gripper_width < HELD_MAX else 0
         if success:
             first_success = obs.t
             if frames is not None:
@@ -112,7 +125,8 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], condition:
             if truth:
                 truth_at.setdefault(switcher.idx, obs.t)
             if condition == "oracle":
-                event = switcher.update(obs.t, truth)
+                held = world.gripped(next(k for k in goals if phase["goal"] in k).split()[1]) if phase["kind"] == "place" else None
+                event = switcher.update(obs.t, truth, held)
             else:
                 event = switcher.update(obs.t, obs.gripper_width, float(obs.eef_pos[2]),
                                         (lambda s=phase["command"], o=obs: judge.prob_done(s, o)) if judge else None, truth)
@@ -123,8 +137,9 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], condition:
                     system1.set_command(command)
                     commands.append((obs.t, command))
         if frames is not None:
-            frames.append(annotate(obs.agent, [f"{condition}  t={obs.t}", f"S1 command: {command}"]))
-    return dict(success=bool(success), steps=obs.t, first_success=first_success, budget=budget, commands=commands, events=events,
+            head = f"{condition}  t={obs.t}" + ("  PERTURBATION: gripper forced open" if forced else "")
+            frames.append(annotate(obs.agent, [head, f"S1 command: {command}"]))
+    return dict(perturbed_at=perturbed_at, success=bool(success), steps=obs.t, first_success=first_success, budget=budget, commands=commands, events=events,
                 truth_done_at=truth_at, vlm_probs=getattr(switcher, "vlm_probs", None), vlm_plan=plan,
                 reference_plan=[p["command"] for p in phases], vlm_calls=judge.calls if judge else 0)
 
@@ -167,7 +182,7 @@ def run(a) -> None:
                     t0 = time.time()
                     try:
                         r = run_episode(world, system1, RobotState(state_name, init_state_id=init, joint_offset_deg=ROBOT_STATES[state_name]),
-                                        seed, phases, condition, judge, world.instruction, frames)
+                                        seed, phases, condition, judge, world.instruction, frames, a.perturb)
                     finally:
                         world.close()
                     video = f"{zlib.crc32(task.encode()):08x}__{state_name}__{seed}__{condition}.mp4"
@@ -222,6 +237,14 @@ def report(res: Path) -> str:
                     lags.append(e["t"] - r["truth_done_at"][str(e["phase"])])
         if lags:
             lines.append(f"    switch minus first simulator-done step: median {int(np.median(lags))}, range {min(lags)} to {max(lags)}")
+    if any(r.get("perturbed_at") is not None for r in rows):
+        lines.append("drop perturbation: success among perturbed episodes (episodes never perturbed in brackets)")
+        for c in conds:
+            part = [r for r in rows if r["condition"] == c]
+            hit = [r for r in part if r.get("perturbed_at") is not None]
+            backs = sum(e["reason"] in ("dropped", "undone") for r in hit for e in r["events"])
+            lines.append(f"  {c:<12} {sum(r['success'] for r in hit)}/{len(hit)}  ({len(part) - len(hit)} not perturbed)  "
+                         f"back to the pick: {backs}  median perturbation step {int(np.median([r['perturbed_at'] for r in hit])) if hit else '-'}")
     probs = [(p, r) for r in rows if r["condition"] == "fused" for p in (r["vlm_probs"] or [])]
     if probs:
         lines.append(f"VLM probability of 'done' on act phases: {len(probs)} checks, median {np.median([p['p'] for p, _ in probs]):.2f}")
@@ -286,6 +309,7 @@ if __name__ == "__main__":
     p.add_argument("--suite-tasks", nargs="*", help="suite:task_id, e.g. libero_10:3; replaces --tasks")
     p.add_argument("--conditions", nargs="*", default=CONDITIONS, choices=ALL_CONDITIONS)
     p.add_argument("--stop-after-min", type=float)
+    p.add_argument("--perturb", choices=["drop"], help="force the gripper open once something has been held")
     a = p.parse_args()
     a.res = a.res_opt or a.res
     if a.command == "run":

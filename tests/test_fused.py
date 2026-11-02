@@ -92,3 +92,41 @@ def test_thin_bowl_grip_counts_as_held_not_empty():
     sw = FusedSwitcher(PHASES)
     ev = drive(sw, [(0.078, 1.0)] * 5 + [(0.0046, 0.9 + 0.01 * i) for i in range(20)])
     assert [e["reason"] for e in ev] == ["signal"]
+
+
+def carry_then_release(descend: bool):
+    """Pick with a lift, carry, then open: lowered first for a place, or in mid-air for a drop."""
+    up = [(0.078, 1.0)] * 5 + [(0.03, 0.9 + 0.01 * i) for i in range(20)]
+    down = [(0.03, 1.1 - 0.01 * i) for i in range(8)] if descend else [(0.03, 1.1)] * 8
+    return up + down + [(0.078, down[-1][1])] * 5
+
+
+def test_release_after_descent_is_a_place_with_drop_detection():
+    sw = FusedSwitcher(PHASES, detect_drop=True)
+    assert [e["reason"] for e in drive(sw, carry_then_release(True))] == ["signal", "signal"]
+
+
+def test_release_in_mid_air_goes_back_to_the_pick():
+    sw = FusedSwitcher(PHASES, detect_drop=True)
+    ev = drive(sw, carry_then_release(False))
+    assert [e["reason"] for e in ev] == ["signal", "dropped"] and sw.idx == 0 and sw.command == "pick up the bowl"
+
+
+def test_mid_air_release_counts_as_place_without_drop_detection():
+    sw = FusedSwitcher(PHASES)
+    assert [e["reason"] for e in drive(sw, carry_then_release(False))] == ["signal", "signal"]
+
+
+def test_oracle_undo_goes_back_when_object_leaves_the_gripper():
+    sw = OracleSwitcher(PHASES, timeout=1000, undo=True, undo_steps=3)
+    sw.reset()
+    sw.update(1, True)
+    for t in range(2, 4):
+        assert sw.update(t, False, False) is None
+    assert sw.update(4, False, False)["reason"] == "undone" and sw.idx == 0
+
+
+def test_oracle_without_undo_stays():
+    sw = OracleSwitcher(PHASES, timeout=1000)
+    sw.update(1, True)
+    assert all(sw.update(t, False, False) is None for t in range(2, 30))
