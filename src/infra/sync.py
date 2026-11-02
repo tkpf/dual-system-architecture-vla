@@ -33,13 +33,14 @@ def counts(res_dir: str) -> dict:
     probes = glob.glob(f"{res_dir}/*/probe.jsonl") + glob.glob(f"{res_dir}/probe.jsonl")
     return dict(n_episodes=sum(sum(1 for _ in open(f)) for f in files + probes), n_cells=len(cells),
                 n_cells_done=sum(os.path.exists(c + "/DONE") for c in cells),
-                n_checkpoints=len(glob.glob(f"{res_dir}/**/step_*/COMPLETE", recursive=True)))
+                n_checkpoints=len(glob.glob(f"{res_dir}/**/step_*/COMPLETE", recursive=True)),
+                n_labels=sum(sum(1 for _ in open(f)) for name in ("boundaries.jsonl", "judge_labels.jsonl") for f in glob.glob(f"{res_dir}/{name}")))
 
 
 def write_sync_info(res_dir: str) -> dict | None:
     info = counts(res_dir)
-    if info["n_episodes"] == 0 and info["n_checkpoints"] == 0:
-        print("no episodes or checkpoints under", res_dir, "- nothing to sync")
+    if info["n_episodes"] == 0 and info["n_checkpoints"] == 0 and info["n_labels"] == 0:
+        print("no episodes, checkpoints or labels under", res_dir, "- nothing to sync")
         return None
     info["time"] = time.strftime("%Y-%m-%d %H:%M:%S")
     json.dump(info, open(f"{res_dir}/SYNC_INFO.json", "w"))

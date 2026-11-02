@@ -122,3 +122,9 @@ def test_removes_only_confirmed_unchanged_unprotected_files_when_disk_is_low(tmp
 def test_nothing_is_removed_while_disk_is_free(tmp_path):
     assert sync.remove_confirmed(str(tmp_path), _confirmed(tmp_path), [], shutil_module=Disk(50)) == []
     assert (tmp_path / "old.pt").exists()
+
+
+def test_a_run_with_only_labels_can_be_synced_but_an_empty_one_cannot(tmp_path):
+    assert sync.write_sync_info(str(tmp_path)) is None
+    (tmp_path / "boundaries.jsonl").write_text("{}\n{}\n")
+    assert sync.write_sync_info(str(tmp_path))["n_labels"] == 2
