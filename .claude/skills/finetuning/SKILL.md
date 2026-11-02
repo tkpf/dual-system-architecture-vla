@@ -35,6 +35,17 @@ Use batch 16.
 
 Google Drive is not used for finetuning.
 
+## Fresh runtime, in one job
+```bash
+cd /content && git clone -q -b finetune https://github.com/tkpf/dual-system-architecture-vla.git repo
+pip install -q -e /content/repo && cd /content/repo
+python -m infra start setup "python -m infra install && python -m infra egl && python -m infra check"
+```
+About 3 minutes. Runtimes were replaced three times in one session, each time losing `/content`. Boundaries take about 15 minutes to redo once demos are cached, longer on a fresh runtime because the raw demos download again, so save `boundaries.jsonl` locally and restore it rather than recomputing.
+
 ## Pitfalls
 - A job piped through `grep` writes its log only when the buffer fills, so an empty log can mean a healthy job. Check result files instead.
 - A notebook runtime can be replaced without warning, and the old one's `/content` is gone. Download before relying on anything there.
+- SmolVLM's processor cuts each image into 17 tiles, 2,909 tokens for two cameras, and runs out of memory at batch 2. Pass `images_kwargs={"do_image_splitting": False}`: 245 tokens, batch 8 at 1.7 s per step and 9.9 GB, 0.5 s per answer.
+- Look at the contact sheets before training. Taking the last held stretch as the end of a pick looked fine in tests, but the sheets showed the moka pot already over the stove, because contact flickers during the carry. The first firm grasp is right.
+- Stock SmolVLA's loss on the same validation frames: whole instruction 0.08, atomic command 0.71, atomic command with chunks cut at the boundary 0.49, with holds 1.51. A high first loss is expected, not a bug.

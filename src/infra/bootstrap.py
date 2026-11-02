@@ -20,6 +20,7 @@ export CMAKE_POLICY_VERSION_MINIMUM=3.5
 pip install -q setuptools wheel
 pip install -q --no-build-isolation hf-egl-probe egl_probe
 pip install -q "lerobot[libero,smolvla]"
+pip install -q -U "torchao>0.16" peft  # peft refuses the torchao that Colab ships
 which lerobot-eval
 echo N | python -c "import libero.libero"
 """
