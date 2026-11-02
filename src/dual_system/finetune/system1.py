@@ -31,6 +31,11 @@ def rising(losses: list[float], patience: int = 3) -> bool:
     return len(tail) == patience + 1 and all(b > a for a, b in zip(tail, tail[1:]))
 
 
+def lr_factor(step: int, total: int, warmup: int) -> float:
+    """Warmup, then cosine down to 10%. A plain float: a NumPy one cannot be read back from a checkpoint with weights_only."""
+    return float(min(1.0, (step + 1) / warmup) * (0.1 + 0.9 * 0.5 * (1 + np.cos(np.pi * min(step, total) / total))))
+
+
 def milestone_steps(total: int, every: int = 1000) -> set[int]:
     return set(range(every, total + 1, every))
 
@@ -103,7 +108,7 @@ def train(a) -> None:
     print("trainable M", sum(p.numel() for p in params.values()) / 1e6, flush=True)
     optim = torch.optim.AdamW(params.values(), lr=a.lr, weight_decay=a.weight_decay)
     warmup = 100
-    sched = torch.optim.lr_scheduler.LambdaLR(optim, lambda s: min(1.0, (s + 1) / warmup) * (0.1 + 0.9 * 0.5 * (1 + np.cos(np.pi * min(s, a.steps) / a.steps))))
+    sched = torch.optim.lr_scheduler.LambdaLR(optim, lambda s: lr_factor(s, a.steps, warmup))
     step, val_losses = 0, []
     last = checkpoint.latest(root)
     if last:

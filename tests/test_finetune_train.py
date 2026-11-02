@@ -4,7 +4,7 @@ import torch
 from dual_system.finetune import checkpoint
 from dual_system.finetune.dataset import frame_index, hold_past_end, load_splits, split_of
 from dual_system.finetune.segment import load_subtasks
-from dual_system.finetune.system1 import rising
+from dual_system.finetune.system1 import lr_factor, rising
 
 
 def test_chunk_holds_after_phase_end():
@@ -68,6 +68,25 @@ def test_resume_restores_step_rng_and_optimizer(tmp_path):
     assert torch.equal(torch.rand(3), expected)
     assert sched2.state_dict()["last_epoch"] == 1
     assert opt2.state_dict()["state"][0]["step"] == 1
+
+
+def test_scheduled_optimizer_reloads_with_safe_loading(tmp_path):
+    p = torch.nn.Parameter(torch.ones(2))
+    opt = torch.optim.AdamW([p], lr=1e-5)
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_factor(s, 100, 10))
+    p.sum().backward()
+    opt.step()
+    sched.step()
+    path = checkpoint.save(tmp_path, 1, _weights(1), opt, sched)
+    opt2 = torch.optim.AdamW([torch.nn.Parameter(torch.ones(2))], lr=1e-5)
+    assert checkpoint.load(path, opt2)["state"]["optimizer_restored"]
+
+
+def test_lr_factor_warms_up_and_decays_to_a_tenth():
+    assert lr_factor(0, 100, 10) < 0.2
+    assert lr_factor(10, 100, 10) > 0.9
+    assert abs(lr_factor(100, 100, 10) - 0.1) < 1e-9
+    assert isinstance(lr_factor(5, 100, 10), float)
 
 
 def test_resume_works_without_optimizer_after_a_restore(tmp_path):

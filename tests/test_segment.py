@@ -26,6 +26,21 @@ def test_pick_ends_at_grasp_and_place_at_goal():
     assert [(p["kind"], p["start"], p["end"]) for p in phases] == [("pick", 0, 21), ("place", 21, 41)]
 
 
+def test_pick_ends_at_first_grasp_when_contact_flickers_during_the_carry():
+    goals = {"on bowl_1 stove": flags(100, (90, 100))}
+    held = {"bowl_1": flags(100, (20, 50), (55, 60), (80, 88))}
+    phases, _ = find_phases(PICK_PLACE, goals, held, flags(100))
+    assert [(p["kind"], p["end"]) for p in phases] == [("pick", 21), ("place", 91)]
+
+
+def test_second_object_ignores_grasps_before_the_first_is_placed():
+    groups = [{"goal": "soup", "pick": "pick soup", "place": "place soup"}, {"goal": "sauce", "pick": "pick sauce", "place": "place sauce"}]
+    goals = {"in soup_1 basket": flags(100, (40, 100)), "in sauce_1 basket": flags(100, (90, 100))}
+    held = {"soup_1": flags(100, (10, 38)), "sauce_1": flags(100, (5, 12), (60, 88))}  # sauce nudged while reaching for the soup
+    phases, _ = find_phases(groups, goals, held, flags(100))
+    assert [p["end"] for p in phases] == [11, 41, 61, 91]
+
+
 def test_groups_follow_demo_order_not_list_order():
     groups = [{"goal": "soup", "pick": "pick soup", "place": "place soup"}, {"goal": "sauce", "pick": "pick sauce", "place": "place sauce"}]
     goals = {"in soup_1 basket": flags(100, (80, 100)), "in sauce_1 basket": flags(100, (40, 100))}

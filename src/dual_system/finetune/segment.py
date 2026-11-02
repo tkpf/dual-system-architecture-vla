@@ -39,6 +39,22 @@ def last_true_start(flags: np.ndarray, min_len: int = 1) -> int | None:
     return None
 
 
+def first_true_start(flags: np.ndarray, min_len: int, start: int = 0) -> int | None:
+    """Start of the first run of True at least min_len long, at or after start."""
+    t = start
+    while t < len(flags):
+        if flags[t]:
+            end = t
+            while end < len(flags) and flags[end]:
+                end += 1
+            if end - t >= min_len:
+                return t
+            t = end
+        else:
+            t += 1
+    return None
+
+
 def find_phases(groups: list[dict], goals: dict[str, np.ndarray], held: dict[str, np.ndarray], gripper_closed: np.ndarray) -> tuple[list[dict] | None, str]:
     """Contiguous phases [{command, kind, start, end}], or None and the reason. end is exclusive. gripper_closed is per step."""
     timed = []
@@ -57,7 +73,7 @@ def find_phases(groups: list[dict], goals: dict[str, np.ndarray], held: dict[str
             ends = [("act", group["act"], max(release, done) + 1)]
         else:
             flags = held[key.split()[1]][:done]
-            grasp = last_true_start(flags, MIN_HELD_FRAMES)
+            grasp = first_true_start(flags, MIN_HELD_FRAMES, t)  # the first firm grasp: contact flickers during the carry
             if grasp is None:
                 return None, f"never held: {key}"
             ends = [("pick", group["pick"], grasp + 1), ("place", group["place"], done + 1)]
