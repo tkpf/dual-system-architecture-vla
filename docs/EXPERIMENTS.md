@@ -15,6 +15,7 @@ The `data/` folder is not committed. Folder names below refer to the local copy.
 7. **Stock pi0.5 already follows subtask commands; finetuning it on relabelled demos made it slightly worse.** With oracle switching it did 16/17 subtasks with real commands and 3/17 with gibberish. After 400 steps of expert-only training, shifted starts reached 17/28 goals against 21/28 for stock (run 10).
 8. **No untrained VLM up to Qwen 8B judges reliably whether a subtask is finished.** On labelled demo frames, "Is this subtask finished?" scored at chance for every model. Asking about the visible state was better but still weak: Qwen 8B 0.64, with 30% false "done" (run 11).
 9. **Showing the frame from the start of the subtask helps Qwen 4B and 8B most among nine prompt styles, but not enough.** AUROC rose from 0.64–0.66 to 0.71–0.72; still about 32% false "done" at the best threshold. One camera instead of two, describing first and multiple choice did not beat it (run 12).
+10. **A System 2 that switches on gripper signals, with the VLM only for "turn on", matched oracle switching in a small first test.** In 16 episodes, fused System 2, passthrough and oracle each succeeded 4/4; keeping the first atomic command (frozen) succeeded 1/4. pi0.5 alone also succeeded everywhere, so these scenes cannot show System 2 helping (run 13).
 
 ## Runs
 
@@ -245,6 +246,27 @@ Qwen 8B and SmolVLM on the other first-pass styles are in `prompt_report.txt`; t
 - **Negated questions** do not cancel the lean towards one answer: Qwen 2B answered "no" to every negated question, so it says "not finished" either way.
 - **The old "finished" prompt ranks above chance** (AUROC 0.59–0.64); its low accuracy in run 11 was mostly the "no" lean, which a threshold corrects. Every style still leaves about a third of unfinished frames called "done" or misses many finished ones.
 
+### 13. Final dual system: fused switching against passthrough, frozen and oracle (subset)
+
+Folder `data/20261103-0010/final` (`final.jsonl`, `final_report.txt`, `side_by_side/`, `videos/`), commits `360ad96` and `09f4f66`, `eval.final`, L4. System 1 is stock pi0.5. System 2 is `system2/fused.py`: a pick is done when the gripper holds something for 8 steps and the hand has risen 3 cm, a place when the gripper reopens after a hold, an act subtask when Qwen 2B's probability of "done" (camera prompt, run 12) is at least 0.8 twice in a row, checked every 10 steps after 40. Every phase times out after 150 steps. System 2 never ends an episode. Every switch is logged against simulator truth.
+
+Episodes: init state 1, one seed, every condition on the same scene, start and seed. 150 steps per phase (300 for the bowl tasks, 450 for the moka pot), ending at environment success. Of the planned 48, 16 were run: the three scenes from start C and bowl-on-stove from start B.
+
+| Condition | Success | Median steps |
+|---|---|---|
+| passthrough (whole instruction) | 4/4 | 99 |
+| frozen (first atomic command only) | 1/4 | 218 |
+| fused System 2 | 4/4 | 101 |
+| oracle switching | 4/4 | 102 |
+
+- **Frozen** picked up the bowl and held it in both bowl scenes. Its one success is the moka pot, where pi0.5 does the whole task under "turn on the stove".
+- **Fused picks** switched 0 to 2 steps from the simulator's pick check. Two are logged as early because the switch came one step before the check, so the check never fired for that phase. No switch was wrong.
+- **The VLM's stove check worked once:** Qwen's probability was 0.50, 0.44 and 0.43 at steps 40 to 60, then 0.94 and 0.99 at 70 and 80, after the burner came on at step 67. It switched at step 80, 13 steps after the truth.
+- **Not exercised:** no place switch ran, because environment success came first. There was no empty-grasp recovery and no timeout.
+- **Decomposition:** Qwen's own plan, logged but not used, was right in 3 of 4 episodes ("place the bowl on the cabinet" is a harmless paraphrase). It left out "pick up the moka pot" once.
+- **Tuning on the test starts:** the first smoke run (start C, bowl on the stove) failed, because the empty-grasp width was set from SmolVLA traces. pi0.5 holds the bowl rim at a width of 0.003 to 0.005, which the switcher read as closed on nothing. It interrupted the grasp twice and timed out. The width was set to 0.002 from the pi0.5 command-probe traces, so the start-C results are not fully independent of the tuning.
+- **What this does not show:** pi0.5 alone succeeded from these starts, so whether System 2 helps, and where the bottleneck is, needs scenes where passthrough fails, such as `libero_10` from start B (0/4 alone in run 4).
+
 ## Practical measurements
 
 | Measure | Value |
@@ -257,12 +279,13 @@ Qwen 8B and SmolVLM on the other first-pass styles are in `prompt_report.txt`; t
 | Qwen 2B one-letter check | About 0.14 s per call |
 | SmolVLA training, action expert only, batch 16 | 0.22 steps/s over 600 steps, 4.7 GB GPU: about 15 minutes per 200 steps |
 | `eval.atomic`, 7 tasks with real, gibberish and stop runs | About 10 minutes per model |
+| `eval.final`, pi0.5 + Qwen 2B on an L4 | About 40 s per episode |
 
 Hub checkpoint sizes, for planning: Qwen 2B 4.3 GB, 4B 8.9 GB, 8B 17.5 GB, SmolVLM2-2.2B 9.0 GB. pi0.5 with Qwen 4B is expected not to fit on a T4 together (not measured).
 
 ## Open questions
 
 - Answered: pi0.5 does follow subtask commands (run 10).
-- Can a System 2 judge progress without a trained VLM? Runs 11 and 12 say not from images alone: the best untrained setup (Qwen 4B, before/after) reaches AUROC 0.71 with about 32% false "done" per frame. Untested: combining it with signals a real robot has anyway, so that a subtask counts as done only when both agree. A pick from the gripper closing on something (not fully shut) and the hand rising; a place from the gripper opening after holding and the hand moving away, with the VLM checking the target; open, close and turn on from the VLM alone, since no robot signal shows them. The comparison would be rollouts against oracle switching on the same scenes.
+- Can a System 2 judge progress without a trained VLM? Runs 11 and 12 say not from images alone: the best untrained setup (Qwen 4B, before/after) reaches AUROC 0.71 with about 32% false "done" per frame. Gripper signals for pick and place, with the VLM only for act subtasks, matched oracle switching in run 13 (16 episodes, easy scenes). Still open: the same on scenes where pi0.5 alone fails, with place switches and recoveries actually exercised.
 - Does SmolVLA learn to follow subtask commands if the top layers of its language model also train, or if gibberish frames are trained to stay still? Run 9 shows that training the expert alone does not.
 - Do the actions actually change at a command switch? The queue clearing is unit-tested, but actions were not compared at the switch.

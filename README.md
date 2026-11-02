@@ -7,7 +7,7 @@ A two-level robot policy for the [LIBERO](https://github.com/Lifelong-Robot-Lear
 
 Both models are used as pretrained. Finetuning is in progress on the `finetune` branch (`src/dual_system/finetune/`): SmolVLA on subtasks cut from LIBERO demos, and SmolVLM as a LoRA judge of finished subtasks. A first SmolVLA run did not make it follow language better (run 9 in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)). Evaluation runs live in the simulator.
 
-> **Status: work in progress.** The pipeline runs end to end, but every dual variant so far performs **worse** overall than System 1 alone. The ablation study is incomplete. See [Results so far](#results-so-far).
+> **Status: work in progress.** The final System 2 (`fused`, below) matched oracle command switching in a first 16-episode test. It still has not beaten System 1 alone, because pi0.5 alone also succeeded on those scenes. Earlier VLM-only System 2 variants performed **worse** than System 1 alone. The ablation study is incomplete. See [Results so far](#results-so-far).
 
 ## Architecture
 
@@ -37,6 +37,8 @@ Both models are used as pretrained. Finetuning is in progress on the `finetune` 
 | `full_phase_atomic` | System 2 knows all phases, its position and what a finished phase looks like, reasons briefly, and ends with the current subtask |
 | `full` | System 2 chooses commands from the candidate list in the `closed_set` profile |
 | `full_scripted` | Fixed answers instead of a VLM, for pipeline checks |
+
+**The final System 2** ([fused.py](src/dual_system/system2/fused.py), run by [eval/final.py](src/dual_system/eval/final.py)) replaces the VLM progress check, which runs 11 and 12 showed to be unreliable. It switches atomic commands on signals the robot has: a pick is done when the gripper holds something and the hand rises, a place when the gripper reopens after a hold. Qwen 2B is asked only about subtasks no robot signal shows, such as "turn on the stove", and needs two confident answers in a row. Every phase has a timeout, an empty grasp triggers "open the gripper" and a retry, and System 2 never ends an episode. `eval.final` compares it with `passthrough`, `frozen` (the first atomic command for the whole episode) and `oracle` (the simulator decides when a phase is done) on the same scene, start and seed.
 
 ## Setup
 
@@ -86,6 +88,11 @@ RUN = RUN[0]
 !python -m infra start w0 "python -m dual_system.eval.grid pi05_atomic_test --res {RUN} --stop-after-min 40"
 !python -m infra status          # one line of JSON: jobs, finished episodes, GPU and RAM
 
+# Final comparison: passthrough, frozen, fused System 2 and oracle; 3 tasks x starts C,B x 2 seeds = 48 episodes
+!python -m infra start final "python -m dual_system.eval.final run --res {RUN}/final --seeds 2 --states C B"
+!python -m dual_system.eval.final report {RUN}/final
+!python -m dual_system.eval.final video {RUN}/final      # 2x2 videos in {RUN}/final/side_by_side
+
 # Tables, sub-goal CSV and side-by-side videos
 !python -m dual_system.eval.report {RUN}
 !python -m dual_system.eval.lookup {RUN} --task 0 --state B
@@ -124,6 +131,19 @@ Each cell folder holds `episodes.jsonl` (outcome), `subgoals.jsonl` (each comman
 ## Results so far
 
 Full run details are in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+
+**Final dual system (run 13, 16 episodes):** the 3 tasks from start C and bowl-on-stove from start B, stock pi0.5 as System 1.
+
+| Condition | Success | Median steps |
+|---|---|---|
+| passthrough (System 1 alone) | 4/4 | 99 |
+| frozen (first atomic command only) | 1/4 | 218 |
+| fused System 2 | 4/4 | 101 |
+| oracle switching | 4/4 | 102 |
+
+Fused switches came 0 to 13 steps after simulator truth, and none was wrong. Atomic commands need a working switcher (frozen 1/4), but these scenes are easy for pi0.5 alone, so they cannot show System 2 helping. Side-by-side videos are made with `python -m dual_system.eval.final video <res>`.
+
+Earlier comparisons:
 
 | Comparison | System 1 alone, or first model | Dual, or second model |
 |---|---|---|
@@ -176,7 +196,7 @@ Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in 
 
 | Question | Current answer |
 |---|---|
-| **Counterfactual** | Partial. Only `passthrough` vs `full*` has been run, and the dual system is worse overall. The fixed schedule in the command probe is close to an oracle for the command sequence. Frozen and shuffled conditions are not implemented |
+| **Counterfactual** | Partial. Run 13 compares removed (`passthrough`), frozen, fused and oracle System 2 on 16 episodes: frozen 1/4, the others 4/4. Shuffled commands are not implemented, and harder scenes are needed to see System 2 help |
 | **Error recovery** | Not answered. Offset start states exist, but mid-episode perturbations are not implemented. Recovery commands ("open the gripper", "move back to the home position") did not noticeably change the robot's behaviour in the probe |
 | **Bottleneck** | Preliminary: mainly System 2's perception. With pi0.5, System 1 reaches goals alone from the stored start, while Qwen 2B misreads the scene. System 1 also ignores command boundaries, so its share is not yet measured |
 
