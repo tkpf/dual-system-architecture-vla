@@ -209,6 +209,22 @@ def report(res: Path) -> str:
         lines.append(f"{c:<12} {sum(r['success'] for r in part):>3}/{len(part):<4} {int(np.median(wins)) if wins else '-':>26}   {per}")
     lines.append("tasks: " + " | ".join(t[:40] for t in tasks))
     lines.append("")
+    lines.append("failure attribution per scene (task, start, seed):")
+    scenes: dict[tuple, dict] = {}
+    for r in rows:
+        scenes.setdefault((r["task"], r["robot_state"], r["seed"]), {})[r["condition"]] = r["success"]
+    full = [s for s in scenes.values() if {"fused", "oracle"} <= s.keys()]
+    if full:
+        fused_fail = [s for s in full if not s["fused"]]
+        lines.append(f"  fused failed {len(fused_fail)}/{len(full)}: oracle also failed (System 1) {sum(not s['oracle'] for s in fused_fail)}, "
+                     f"oracle succeeded (System 2) {sum(s['oracle'] for s in fused_fail)}")
+        with_pass = [s for s in full if "passthrough" in s]
+        lines.append(f"  passthrough failed, fused succeeded (rescue) {sum(not s['passthrough'] and s['fused'] for s in with_pass)}; "
+                     f"passthrough succeeded, fused failed (harm) {sum(s['passthrough'] and not s['fused'] for s in with_pass)}; of {len(with_pass)}")
+        with_frozen = [s for s in full if "frozen" in s]
+        lines.append(f"  fused vs frozen: fused only {sum(s['fused'] and not s['frozen'] for s in with_frozen)}, "
+                     f"frozen only {sum(s['frozen'] and not s['fused'] for s in with_frozen)}, of {len(with_frozen)}")
+    lines.append("")
     lines.append("by start state (success)")
     for s in sorted({r["robot_state"] for r in rows}):
         lines.append(f"  {s}: " + "  ".join(f"{c} {sum(r['success'] for r in rows if r['condition'] == c and r['robot_state'] == s)}/"
