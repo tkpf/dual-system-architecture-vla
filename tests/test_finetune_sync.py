@@ -134,7 +134,7 @@ def test_large_zip_is_split_and_joined_back(tmp_path):
     zip_path = tmp_path / "finetune_results_20261102_000000.zip"
     zip_path.write_bytes(bytes(range(256)) * 10)
     parts = sync.split(str(zip_path), part_bytes=1000)
-    assert [Path(p).name[-6:] for p in parts] == ["p01of03", "p02of03", "p03of03"]
+    assert [Path(p).name[-7:] for p in parts] == ["p01of03", "p02of03", "p03of03"]
     original = zip_path.read_bytes()
     zip_path.unlink()
     Path(parts[2]).rename(tmp_path / "elsewhere")
