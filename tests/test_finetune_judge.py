@@ -127,7 +127,7 @@ def test_demo_questions_keep_away_from_the_boundary():
     for q in qs:
         phase = next(p for p in row["phases"] if p["command"] == q["step"])
         assert q["t"] <= phase["end"] - 1 - MARGIN if not q["done"] else q["t"] >= phase["end"] - 1 + MARGIN
-        assert q["t"] < row["length"]
+        assert q["t"] < row["length"] and q["start"] == phase["start"]
     assert sum(q["done"] for q in qs if q["kind"] == "pick") == 2
     assert sum(q["done"] for q in qs if q["kind"] == "place") == 0  # the demo ends too soon after it
 

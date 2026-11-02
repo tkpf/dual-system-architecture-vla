@@ -37,11 +37,11 @@ def questions_for(row: dict, rng: np.random.Generator) -> list[dict]:
             continue
         for f in BEFORE:
             t = min(p["start"] + int(f * span), p["end"] - 1 - MARGIN)
-            out.append(dict(t=t, step=p["command"], kind=p["kind"], done=False))
+            out.append(dict(t=t, step=p["command"], kind=p["kind"], done=False, start=p["start"]))
         for d in AFTER:
             t = p["end"] - 1 + d + int(rng.integers(0, 3))
             if t < row["length"]:
-                out.append(dict(t=t, step=p["command"], kind=p["kind"], done=True))
+                out.append(dict(t=t, step=p["command"], kind=p["kind"], done=True, start=p["start"]))
     return out
 
 
@@ -93,12 +93,14 @@ def sample(boundaries: Path, res: Path, per_task: int = 1, seed: int = 0) -> Non
             episode = f"ep{row['episode']}"
             for q in questions_for(row, rng):
                 frame = f"{episode}__t{q['t']:04d}"
-                if not (res / "frames" / f"{frame}_agent.jpg").exists():
-                    item = ds[row["first_index"] + q["t"]]
-                    for key, cam in (("observation.images.image", "agent"), ("observation.images.image2", "wrist")):
-                        img = (item[key].permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-                        Image.fromarray(img).save(res / "frames" / f"{frame}_{cam}.jpg", quality=92)
-                out.write(json.dumps(dict(frame=frame, episode=episode, task=task, **q)) + "\n")
+                for t in (q["t"], q["start"]):  # the subtask's first frame too, for before/after prompts
+                    name = f"{episode}__t{t:04d}"
+                    if not (res / "frames" / f"{name}_agent.jpg").exists():
+                        item = ds[row["first_index"] + t]
+                        for key, cam in (("observation.images.image", "agent"), ("observation.images.image2", "wrist")):
+                            img = (item[key].permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+                            Image.fromarray(img).save(res / "frames" / f"{name}_{cam}.jpg", quality=92)
+                out.write(json.dumps(dict(frame=frame, episode=episode, task=task, start_frame=f"{episode}__t{q['start']:04d}", **q)) + "\n")
     out.close()
     labels = [json.loads(line) for line in open(res / "demo_labels.jsonl", encoding="utf-8")]
     print(len(labels), "questions,", sum(r["done"] for r in labels), "finished,", len({r["episode"] for r in labels}), "episodes", flush=True)

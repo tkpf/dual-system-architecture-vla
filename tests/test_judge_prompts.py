@@ -36,3 +36,11 @@ def test_auroc_and_cross_fit():
     rows = [dict(episode=f"ep{i}", prob=0.02 + 0.01 * (i % 5) + (0.05 if t else 0), truth=t) for i in range(40) for t in (True, False)]
     acc, false_done = cross_fit(rows)
     assert acc > 0.7 and false_done < 0.3  # a model that always leans to "no" but ranks well is recovered by the threshold
+
+
+def test_new_styles_choose_their_images():
+    r = _Retriever()
+    assert build("pick up the bowl", "one_camera", r)["images"] == [("now", "wrist")]
+    assert build("turn on the stove", "one_camera", r)["images"] == [("now", "agent")]
+    assert build("pick up the bowl", "before_after", r)["images"][0] == ("start", "agent")
+    assert build("pick up the bowl", "state", r)["images"] == [("now", "agent"), ("now", "wrist")]

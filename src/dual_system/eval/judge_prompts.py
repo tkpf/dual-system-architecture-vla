@@ -10,6 +10,8 @@ Styles, each built from the subtask text:
   camera    tells the model which camera shows the result and what to look for there
   choice    lettered descriptions of the possible states, one of them the finished one
   describe  one sentence on what is visible, then the answer
+  one_camera  only the camera where the result shows: the wrist for a grasp, the scene for everything else
+  before_after  the scene at the start of the subtask next to the scene and wrist now, asked to compare
 Besides the generated answer, the probability of the finished answer is read from the first answer token (not for describe).
 That gives AUROC, which ignores where a model puts its threshold, and a threshold chosen on half of the episodes and scored
 on the other half. A model that always says "no" but ranks frames well shows a low accuracy and a high AUROC.
@@ -27,8 +29,9 @@ from ..knowledge import StaticRetriever
 from .demo_judge import SMOLVLM_KWARGS
 from .perception import MODELS
 
-STYLES = ("finished", "state", "negated", "camera", "choice", "describe")
+STYLES = ("finished", "state", "negated", "camera", "choice", "describe", "one_camera", "before_after")
 CAMS = "The first image is the scene camera, the second the wrist camera on the gripper."
+NOW = [("now", "agent"), ("now", "wrist")]
 
 
 def parse_step(step: str) -> dict:
@@ -92,8 +95,25 @@ def _choice(p: dict) -> tuple[str, str]:
 
 
 def build(step: str, style: str, retriever) -> dict:
-    """prompt, answer type (yesno, choice, describe), the answer that means finished, and whether to show the scene only."""
+    """prompt, answer type (yesno, choice, describe), the answer that means finished, and the images as (time, camera)."""
+    spec = _build(step, style, retriever)
+    spec.setdefault("images", NOW)
+    return spec
+
+
+def _build(step: str, style: str, retriever) -> dict:
     p = parse_step(step)
+    if style == "one_camera":  # the camera where the result shows: the wrist for a grasp, the scene for everything else
+        if p["kind"] == "pick":
+            return dict(prompt="The image is from the wrist camera on the gripper. A held object sits between the two fingers, "
+                               f"large and close.\nIs the {p['obj']} held between the gripper fingers?\nAnswer with one word: yes or no.",
+                        type="yesno", done="yes", images=[("now", "wrist")])
+        return dict(prompt=f"The image is from the scene camera.\n{_state(p)}\nAnswer with one word: yes or no.",
+                    type="yesno", done="yes", images=[("now", "agent")])
+    if style == "before_after":
+        return dict(prompt="The first image is the scene camera when the robot started this step, the second the scene camera now, "
+                           "the third the wrist camera now.\nCompare now with the start. " + _state(p) + "\nAnswer with one word: yes or no.",
+                    type="yesno", done="yes", images=[("start", "agent"), ("now", "agent"), ("now", "wrist")])
     if style == "finished":
         return dict(prompt=f'{CAMS}\nSubtask: "{step}".\nIt is finished only when {retriever.phase_definition(step)}\n'
                            "Is this subtask finished? Answer with one word: yes or no.", type="yesno", done="yes")
@@ -165,11 +185,11 @@ def run_model(res: Path, key: str, styles: list[str]) -> None:
     retriever = StaticRetriever("phase_atomic")
     out = open(path, "a", encoding="utf-8")
     for row in labels:
-        images = [np.asarray(Image.open(res / "frames" / f"{row['frame']}_{cam}.jpg")) for cam in ("agent", "wrist")]
         for style in styles:
             if (row["frame"], row["step"], style) in finished:
                 continue
             spec = build(row["step"], style, retriever)
+            images = [np.asarray(Image.open(res / "frames" / f"{row['frame' if when == 'now' else 'start_frame']}_{cam}.jpg")) for when, cam in spec["images"]]
             t0 = time.perf_counter()
             a = reasoner._generate(spec["prompt"], images, 60 if spec["type"] == "describe" else 3, f"judge_{style}", lambda raw: raw)
             answer = parse_answer(a.raw, spec["type"])
