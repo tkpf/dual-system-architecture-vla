@@ -137,8 +137,8 @@ def _build(step: str, style: str, retriever) -> dict:
 
 
 def parse_answer(text: str, kind: str) -> str | None:
-    if kind == "describe":
-        m = re.findall(r"ANSWER:\s*(yes|no)", text, re.I)
+    if kind == "describe":  # asked for "ANSWER: yes", but Qwen ends with a bare "yes" or "no" after the sentence
+        m = re.findall(r"ANSWER:\s*(yes|no)", text, re.I) or re.findall(r"\b(yes|no)\W*$", text.strip(), re.I)
         return m[-1].lower() if m else None
     if kind == "choice":
         m = re.match(r"\W*([A-C])\b", text)
@@ -257,6 +257,10 @@ def report(res: Path) -> str:
     lines = ["model        style      answer acc  says done  AUROC [95%]           threshold acc  false done  s/answer"]
     for f in sorted(res.glob("prompt_answers_*.jsonl")):
         rows = [json.loads(line) for line in open(f, encoding="utf-8")]
+        for r in rows:  # re-parse free text, so a parser fix needs no rerun
+            if r["style"] == "describe":
+                parsed = parse_answer(r["raw"], "describe")
+                r["answer"] = None if parsed is None else parsed == "yes"
         for style in STYLES:
             part = [r for r in rows if r["style"] == style]
             if not part:

@@ -27,6 +27,8 @@ def test_answers_parse():
     assert parse_answer("B) the bowl", "choice") == "B"
     assert parse_answer("The gripper holds the bowl.\nANSWER: no", "describe") == "no"
     assert parse_answer("unclear", "yesno") is None
+    assert parse_answer("The drawer is open.  \nyes", "describe") == "yes"
+    assert parse_answer("The drawer is closed, not open.", "describe") is None
 
 
 def test_auroc_and_cross_fit():
