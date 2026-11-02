@@ -35,6 +35,8 @@ Use batch 16.
 
 Google Drive is not used for finetuning.
 
+`files.download` delivered 40 MB and 120 MB, but a 421 MB zip never arrived, with no error, after three tries. So `sync.download` sends anything above 100 MB as parts `<zip>.pNNofMM`. The browser writes empty placeholders and `*.part` files while downloading, so `pull_finetune.py` joins parts only when all are complete, and deletes them only once the joined zip passes its check. A sent zip stays on the runtime: `sync.download(<path>)` sends it again.
+
 ## Fresh runtime, in one job
 ```bash
 cd /content && git clone -q -b finetune https://github.com/tkpf/dual-system-architecture-vla.git repo
