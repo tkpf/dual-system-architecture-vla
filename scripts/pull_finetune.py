@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -60,21 +61,28 @@ def prune_local(root: Path, keep_last: int) -> list[str]:
 
 
 def join_parts(downloads: Path) -> list[str]:
-    """Join <zip>.pNNofMM parts into <zip> once all of them are there. Incomplete sets wait for the next run."""
+    """Join <zip>.pNNofMM parts into <zip> once all of them are there and the browser has finished writing them (it keeps
+    empty placeholders next to *.part files while downloading). Parts are removed only when the joined zip passes its check."""
     groups: dict[str, list[Path]] = {}
     for part in downloads.glob("finetune_results_*.zip.p*of*"):
-        groups.setdefault(part.name.rsplit(".p", 1)[0], []).append(part)
+        if re.search(r"\.p\d+of\d+$", part.name):
+            groups.setdefault(part.name.rsplit(".p", 1)[0], []).append(part)
     report = []
     for name, parts in sorted(groups.items()):
         total = int(parts[0].name.rsplit("of", 1)[1])
-        if len(parts) != total:
-            report.append(f"waiting for parts of {name}: {len(parts)}/{total}")
+        busy = any(downloads.glob(name.removesuffix(".zip") + ".*.part")) or any(p.stat().st_size == 0 for p in parts)
+        if len(parts) != total or busy:
+            report.append(f"waiting for parts of {name}: {len(parts)}/{total}{', still downloading' if busy else ''}")
             continue
         tmp = downloads / (name + ".joining")
         with open(tmp, "wb") as out:
             for part in sorted(parts):
                 out.write(part.read_bytes())
         os.replace(tmp, downloads / name)
+        if check(downloads / name) is None:
+            report.append(f"joined {name} fails its check, parts kept")
+            (downloads / name).unlink()
+            continue
         for part in parts:
             part.unlink()
     return report

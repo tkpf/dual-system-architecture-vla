@@ -130,16 +130,38 @@ def test_a_run_with_only_labels_can_be_synced_but_an_empty_one_cannot(tmp_path):
     assert sync.write_sync_info(str(tmp_path))["n_labels"] == 2
 
 
+def _real_zip(path):
+    data = os.urandom(3000)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("res/a.bin", data)
+        z.writestr("res/MANIFEST.json", json.dumps(dict(run="r", files={"a.bin": [3000, 0]}, info={})))
+
+
 def test_large_zip_is_split_and_joined_back(tmp_path):
     zip_path = tmp_path / "finetune_results_20261102_000000.zip"
-    zip_path.write_bytes(bytes(range(256)) * 10)
+    _real_zip(zip_path)
     parts = sync.split(str(zip_path), part_bytes=1000)
-    assert [Path(p).name[-7:] for p in parts] == ["p01of03", "p02of03", "p03of03"]
+    assert [Path(p).name[-7:] for p in parts] == ["p01of04", "p02of04", "p03of04", "p04of04"]
     original = zip_path.read_bytes()
     zip_path.unlink()
     Path(parts[2]).rename(tmp_path / "elsewhere")
-    assert "1/3" in pull_finetune.join_parts(tmp_path)[0] or "2/3" in pull_finetune.join_parts(tmp_path)[0]
+    assert "3/4" in pull_finetune.join_parts(tmp_path)[0]
     (tmp_path / "elsewhere").rename(parts[2])
     assert pull_finetune.join_parts(tmp_path) == []
     assert zip_path.read_bytes() == original and not list(tmp_path.glob("*.p0*"))
     assert sync.split(str(zip_path), part_bytes=10**6) == [str(zip_path)]
+
+
+def test_join_waits_for_the_browser_and_keeps_parts_of_a_bad_zip(tmp_path):
+    zip_path = tmp_path / "finetune_results_20261102_000000.zip"
+    _real_zip(zip_path)
+    parts = sync.split(str(zip_path), part_bytes=1000)
+    zip_path.unlink()
+    content = Path(parts[1]).read_bytes()
+    Path(parts[1]).write_bytes(b"")  # placeholder while the browser writes a .part file
+    (tmp_path / "finetune_results_20261102_000000.Xy12.zip.p02of04.part").write_bytes(b"x")
+    assert "still downloading" in pull_finetune.join_parts(tmp_path)[0]
+    (tmp_path / "finetune_results_20261102_000000.Xy12.zip.p02of04.part").unlink()
+    Path(parts[1]).write_bytes(b"0" * len(content))  # complete but wrong
+    assert "fails its check" in pull_finetune.join_parts(tmp_path)[0]
+    assert len(list(tmp_path.glob("*.p0*"))) == 4 and not zip_path.exists()
