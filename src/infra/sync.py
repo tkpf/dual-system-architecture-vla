@@ -128,10 +128,35 @@ def to_browser_new(res_dir: str | None = None, prefix: str = "finetune_results")
         z.writestr("res/MANIFEST.json", json.dumps(manifest))
     json.dump({**sent, **new}, open(sent_path, "w"))
     print(len(new), "files", round(os.path.getsize(out) / 1e6), "MB", info)
+    download(out)
+    return out
+
+
+PART_BYTES = 100 * 2**20  # 120 MB arrived through files.download, 421 MB never did
+
+
+def split(path: str, part_bytes: int = PART_BYTES) -> list[str]:
+    """path itself if it is small, otherwise parts named <path>.pNNofMM that scripts/pull_finetune.py joins again."""
+    size = os.path.getsize(path)
+    if size <= part_bytes:
+        return [path]
+    n = -(-size // part_bytes)
+    parts = []
+    with open(path, "rb") as src:
+        for i in range(n):
+            part = f"{path}.p{i + 1:02d}of{n:02d}"
+            with open(part, "wb") as out:
+                out.write(src.read(part_bytes))
+            parts.append(part)
+    return parts
+
+
+def download(path: str) -> None:
+    """Downloads path, in parts if it is large. Also resends a zip whose download never arrived."""
     from google.colab import files
 
-    files.download(out)
-    return out
+    for part in split(path):
+        files.download(part)
 
 
 def remove_confirmed(res_dir: str, confirmed: dict, protect: list[str], low_gb: float = 10.0, shutil_module=None) -> list[str]:

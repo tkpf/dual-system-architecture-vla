@@ -59,8 +59,29 @@ def prune_local(root: Path, keep_last: int) -> list[str]:
     return removed
 
 
-def pull(downloads: Path, data: Path, keep_last: int = 3) -> list[str]:
+def join_parts(downloads: Path) -> list[str]:
+    """Join <zip>.pNNofMM parts into <zip> once all of them are there. Incomplete sets wait for the next run."""
+    groups: dict[str, list[Path]] = {}
+    for part in downloads.glob("finetune_results_*.zip.p*of*"):
+        groups.setdefault(part.name.rsplit(".p", 1)[0], []).append(part)
     report = []
+    for name, parts in sorted(groups.items()):
+        total = int(parts[0].name.rsplit("of", 1)[1])
+        if len(parts) != total:
+            report.append(f"waiting for parts of {name}: {len(parts)}/{total}")
+            continue
+        tmp = downloads / (name + ".joining")
+        with open(tmp, "wb") as out:
+            for part in sorted(parts):
+                out.write(part.read_bytes())
+        os.replace(tmp, downloads / name)
+        for part in parts:
+            part.unlink()
+    return report
+
+
+def pull(downloads: Path, data: Path, keep_last: int = 3) -> list[str]:
+    report = join_parts(downloads)
     for zip_path in sorted(downloads.glob("finetune_results_*.zip")):
         manifest = check(zip_path)
         if manifest is None:

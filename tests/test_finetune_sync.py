@@ -128,3 +128,18 @@ def test_a_run_with_only_labels_can_be_synced_but_an_empty_one_cannot(tmp_path):
     assert sync.write_sync_info(str(tmp_path)) is None
     (tmp_path / "boundaries.jsonl").write_text("{}\n{}\n")
     assert sync.write_sync_info(str(tmp_path))["n_labels"] == 2
+
+
+def test_large_zip_is_split_and_joined_back(tmp_path):
+    zip_path = tmp_path / "finetune_results_20261102_000000.zip"
+    zip_path.write_bytes(bytes(range(256)) * 10)
+    parts = sync.split(str(zip_path), part_bytes=1000)
+    assert [Path(p).name[-6:] for p in parts] == ["p01of03", "p02of03", "p03of03"]
+    original = zip_path.read_bytes()
+    zip_path.unlink()
+    Path(parts[2]).rename(tmp_path / "elsewhere")
+    assert "1/3" in pull_finetune.join_parts(tmp_path)[0] or "2/3" in pull_finetune.join_parts(tmp_path)[0]
+    (tmp_path / "elsewhere").rename(parts[2])
+    assert pull_finetune.join_parts(tmp_path) == []
+    assert zip_path.read_bytes() == original and not list(tmp_path.glob("*.p0*"))
+    assert sync.split(str(zip_path), part_bytes=10**6) == [str(zip_path)]
