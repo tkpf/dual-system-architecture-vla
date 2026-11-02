@@ -7,6 +7,8 @@ description: Run and read this project's experiments on Colab: pi0.5 as System 1
 
 Results so far are in `docs/EXPERIMENTS.md`. Add every new run there, with its folder, commit and episode counts.
 
+Training models (SmolVLA on subtasks, the SmolVLM judge), subtask evaluation with `eval.atomic` and downloading checkpoints are in the `finetuning` skill.
+
 ## Before a run
 1. Commit, push the working branch, and verify with `git ls-remote origin` that it matches local `HEAD`.
 2. On Colab: `git pull`, then `RUN=$(python -m infra newrun)`. Every run gets a new `YYYYMMDD-HHMM` folder.
