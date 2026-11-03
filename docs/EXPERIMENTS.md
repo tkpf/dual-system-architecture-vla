@@ -288,6 +288,33 @@ Folder `data/20261103-0040` (`libero10_sel/final.jsonl` and `final_report.txt` f
 - **VLM stove check:** probability 0.26 to 0.55 before the burner came on at step 76, then 0.99 at 80 and 90. It switched at step 90.
 - **Bottleneck:** on these scenes it is System 1 execution. The two failures that remain under oracle switching are System 1's. System 2's errors (switches on the wrong object) cost nothing measurable here, because pi0.5 ignores which object the command names.
 
+### 15. Final dual system on all 10 `libero_10` scenes, start B, seed 1
+
+Folder `data/20261103-0108/libero10` (`final.jsonl`, `videos/`), commits `0e825b4` (episodes from run 14) and `af279a9`, `eval.final`, L4. This extends run 14 to every `libero_10` task, so the scenes are no longer chosen by passthrough's outcome. Same settings as runs 13 and 14: init state 1, start B, one seed, 150 steps per phase.
+
+| `libero_10` task | passthrough | frozen | fused | oracle |
+|---|---|---|---|---|
+| 0 alphabet soup + tomato sauce in basket | 349 | 319 | fail | fail |
+| 1 cream cheese box + butter in basket | fail | 474 | 571 | 375 |
+| 2 turn on stove + moka pot | fail | 190 | 191 | 186 |
+| 3 black bowl in bottom drawer + close it | 283 | fail | fail | fail |
+| 4 white mug left plate + yellow-white mug right plate | 485 | 433 | 501 | fail |
+| 5 book in back compartment of caddy | 200 | fail | fail | 195 |
+| 6 white mug on plate + pudding right of plate | fail | fail | fail | fail |
+| 7 alphabet soup + cream cheese box in basket | fail | fail | fail | fail |
+| 8 both moka pots on stove | 560 | fail | fail | fail |
+| 9 yellow-white mug in microwave + close it | fail | fail | fail | fail |
+| **Success** | **5/10** | **4/10** | **3/10** | **3/10** |
+
+Numbers are steps to success.
+
+- **Atomic commands hurt on average, even with perfect switching.** Oracle switching reached 3/10 against 5/10 for the whole instruction. Passthrough succeeded and oracle failed on 4 scenes (0, 3, 4, 8); the reverse happened on 2 (1, 2). pi0.5 was trained on whole `libero_10` instructions, and the atomic commands are a distribution shift for it.
+- **Attribution of fused's 7 failures:** 6 also failed under oracle switching (System 1 execution, or the atomic-command interface itself). 1 failed only under fused (task 5, the book). There, fused and oracle switched at steps 68 and 67, and the rollouts then diverged. That is rollout noise, not a System 2 error.
+- **Fused against passthrough:** fused rescued 2 scenes and lost 4. Against frozen, it never won a scene that frozen lost, and frozen won one that fused lost.
+- **The VLM's close check is too lenient:** for "close the bottom drawer" and "close the microwave", Qwen's probability was 0.82 to 0.84 from the first check. Both switches were on the last phase, so they cost nothing, but one came while the drawer was still open. The stove check behaved as in runs 13 and 14.
+- **Gripper signals:** 15 of 19 signal switches came while the simulator did not count the named object as picked or placed, mostly because pi0.5 took a different object or order. 9 of fused's 10 timeouts and all 19 of oracle's timeouts were on phases pi0.5 never finished.
+- **One seed per scene:** the book scene shows that a one-step difference in the switch can flip the outcome. Single-scene differences are mostly noise, and only totals over many scenes count.
+
 ## Practical measurements
 
 | Measure | Value |
