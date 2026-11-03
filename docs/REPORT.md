@@ -11,7 +11,7 @@ The ablation does **not** show that System 2 improves System 1:
 - **Easy scenes:** pi0.5 alone and the dual system both succeed (4/4).
 - **Ten `libero_10` scenes from a shifted start, two seeds:** the whole instruction beats atomic commands, even atomic commands switched by the simulator itself (9/20 against 5/20 with oracle switching and 4/20 with our System 2). None of these differences is significant at this sample size.
 - **Bottleneck:** most failures remain under oracle switching, so they come from System 1 under atomic commands, not from System 2's reasoning.
-- **Error recovery:** System 2 detects a dropped object as reliably as the simulator does, but re-commanding the pick does not change the outcome.
+- **Error recovery:** System 2 detects a dropped object as reliably as the simulator does (8 of 8), but re-commanding the pick does not change the outcome (6/8 with and without recovery).
 
 ## 2. Architecture
 
@@ -68,15 +68,15 @@ Offline, on labelled demo frames, no untrained VLM up to Qwen3-VL 8B judged reli
 
 ### 4.2 Error recovery
 
-Once the gripper has held the bowl for 20 steps, it is forced open for 10 steps, so the bowl falls during the carry (run 16; both bowl scenes, start C, 2 seeds).
+Once the gripper has held the bowl for 20 steps, it is forced open for 10 steps, so the bowl falls during the carry (run 16; both bowl scenes, start C, 4 seeds). Without the perturbation, all conditions solve these scenes.
 
 | passthrough | fused | fused, no recovery | oracle |
 |---|---|---|---|
-| 2/4 | 2/4 | 2/4 | 3/4 |
+| 5/8 | 6/8 | 6/8 | 5/8 |
 
-- **System 2 detected every drop** within 1 to 2 steps of the simulator.
-- **Detection changed no outcome:** fused with and without recovery failed on the same episodes. On the cabinet scene, pi0.5 picks the bowl up again under any command. On the stove scene, re-commanding the pick led to a new grasp but not to success.
-- **Oracle's one extra success** needed three re-picks.
+- **System 2 detected all 8 drops** within 1 to 3 steps of the simulator, from gripper width and hand height alone.
+- **Detection changed no outcome:** fused with and without recovery succeeded and failed on exactly the same episodes. pi0.5 picks a dropped bowl up again even while commanded to place it.
+- **The failed episodes failed in execution:** even oracle recovery, which re-commands the pick whenever the simulator says the bowl was lost, reached only 5/8.
 
 So System 2 notices errors, but recovery is limited by execution.
 
@@ -92,7 +92,7 @@ We attribute each failed fused episode by whether oracle switching failed on the
 
 ## 5. Limitations
 
-- **Small samples:** 20 `libero_10` scene-seed pairs, 4 `libero_goal` scenes and 4 drop episodes per condition, with a single LIBERO init state. No pairwise difference is significant. Single-scene differences between conditions are mostly noise: a one-step difference in a switch can flip an outcome (run 15, book scene).
+- **Small samples:** 20 `libero_10` scene-seed pairs, 4 `libero_goal` scenes and 8 drop episodes per condition, with a single LIBERO init state. No pairwise difference is significant. Single-scene differences between conditions are mostly noise: a one-step difference in a switch can flip an outcome (run 15, book scene).
 - **Tuning on test starts:** the gripper thresholds were set from pi0.5 command-probe traces after a failed smoke test on start C, so the start C results are not fully independent of tuning.
 - **Not run:** shuffled commands and a gibberish System 2 were not run for pi0.5 in the dual system. Gibberish was tested for System 1 alone (run 10).
 - **Object identity:** the gripper signal cannot tell which object is held. A wrist-camera check of the held object is the obvious next step.

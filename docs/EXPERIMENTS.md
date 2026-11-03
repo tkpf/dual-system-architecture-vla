@@ -18,7 +18,7 @@ The `data/` folder is not committed. Folder names below refer to the local copy.
 10. **A System 2 that switches on gripper signals, with the VLM only for "turn on", matched oracle switching in a small first test.** In 16 episodes, fused System 2, passthrough and oracle each succeeded 4/4; keeping the first atomic command (frozen) succeeded 1/4. pi0.5 alone also succeeded everywhere, so these scenes cannot show System 2 helping (run 13).
 11. **On `libero_10` scenes where pi0.5 alone failed, every System 2 condition rescued the same 2 of 4, and the other 2 failed even with oracle switching.** Frozen, fused and oracle each reached 2/4 against 0/4 for passthrough. The rescue therefore does not come from progress tracking, and the remaining failures are System 1 execution. In two-object tasks the gripper signal fired on grasps the simulator did not count for the named object (10 of 11 signal switches) (run 14).
 12. **Over all 10 `libero_10` scenes from start B with two seeds, the whole instruction did best and System 2 did not help.** Passthrough 9/20, frozen 7/20, fused 4/20, oracle switching 5/20. 13 of fused's 16 failures also failed under oracle switching, so the bottleneck is System 1 under atomic commands. No pairwise difference is significant (smallest p = 0.18) (runs 15 and 17).
-13. **System 2 detects a dropped object as reliably as the simulator does, but recovery does not improve success.** In a forced-drop test on two bowl scenes, fused noticed every drop within 1 to 2 steps of the oracle. Its outcomes were identical with and without recovery (2/4 each, oracle 3/4) (run 16).
+13. **System 2 detects a dropped object as reliably as the simulator does, but recovery does not improve success.** In a forced-drop test on two bowl scenes with 4 seeds, fused noticed all 8 drops within 1 to 3 steps of the oracle. Its outcomes were identical with and without recovery in every episode (6/8 each; passthrough 5/8, oracle 5/8) (run 16).
 
 ## Runs
 
@@ -319,24 +319,28 @@ Numbers are steps to success.
 
 ### 16. Error recovery: a forced drop mid-carry
 
-Folder `data/20261103-0119_drop/drop` (`final.jsonl`, `final_report.txt`, `side_by_side/`, `videos/`), commit `af279a9`, `eval.final --perturb drop`, L4. Both bowl scenes of run 13 (`libero_goal` tasks 1 and 4), start C, 2 seeds, 300 steps.
+Folder `data/20261103-0203_drop/drop` (`final.jsonl`, `final_report.txt`, `side_by_side/`, `videos/`; seeds 1 and 2 also in `data/20261103-0119_drop`), commit `af279a9`, `eval.final --perturb drop`, L4. Both bowl scenes of run 13 (`libero_goal` tasks 1 and 4), start C, 4 seeds, 300 steps: 32 episodes.
 
-**Perturbation:** once the gripper has held something for 20 steps in a row, it is forced open for 10 steps, so the bowl falls. The rule uses the robot's own gripper reading, the same in every condition, and fired at steps 60 to 68 in all 16 episodes, during the carry. With this flag, fused treats a release as a place only if the hand came down at least 2 cm while holding; a release in mid-air sends it back to "pick up the bowl". Oracle goes back to the pick when the simulator says the bowl has left the gripper for 10 steps without being placed. `fused_norec` has neither, so it treats the drop as a finished place.
+**Perturbation:** once the gripper has held something for 20 steps in a row, it is forced open for 10 steps, so the bowl falls. The rule uses the robot's own gripper reading, the same in every condition, and fired at steps 60 to 68 in all 32 episodes, during the carry. With this flag, fused treats a release as a place only if the hand came down at least 2 cm while holding; a release in mid-air sends it back to "pick up the bowl". Oracle goes back to the pick when the simulator says the bowl has left the gripper for 10 steps without being placed. `fused_norec` has neither, so it treats the drop as a finished place.
 
 | Scene, seed | passthrough | fused | fused, no recovery | oracle |
 |---|---|---|---|---|
 | bowl on stove, 1 | fail | fail | fail | 251 |
-| bowl on cabinet, 1 | 183 | 196 | 188 | 291 |
 | bowl on stove, 2 | fail | fail | fail | fail |
+| bowl on stove, 3 | 141 | 124 | 125 | 121 |
+| bowl on stove, 4 | 146 | 198 | 128 | fail |
+| bowl on cabinet, 1 | 183 | 196 | 188 | 291 |
 | bowl on cabinet, 2 | 225 | 154 | 149 | 183 |
-| **Success** | **2/4** | **2/4** | **2/4** | **3/4** |
+| bowl on cabinet, 3 | 233 | 193 | 163 | fail |
+| bowl on cabinet, 4 | fail | 187 | 152 | 147 |
+| **Success** | **5/8** | **6/8** | **6/8** | **5/8** |
 
-Without the drop, all four conditions succeeded on these scenes (run 13, seed 1).
+Numbers are steps to success. Without the drop, all four conditions succeeded on these scenes (run 13, seed 1).
 
-- **System 2 detected every drop.** Fused went back to the pick at steps 74, 80, 74 and 78, within 1 to 2 steps of the oracle's simulator-based "undone" (72 to 79).
-- **The detection did not change any outcome.** Fused and fused without recovery succeeded and failed on exactly the same episodes. On the cabinet, pi0.5 picks the bowl up again under any command, even "place the bowl on top of the cabinet". On the stove, the bowl was picked up again after "pick up the bowl" (fused at steps 107 and 110), but the scene still failed. Oracle recorded the bowl leaving the gripper again at steps 112 and 199 in seed 1, so pi0.5 struggles to carry the bowl after it has fallen.
-- **Oracle's one extra success** (stove, seed 1) came after three re-picks. Fused would have needed the same persistence: its second "dropped" at step 149 sent it back to the pick, but its third pick was followed by a place signal at step 207 without success.
-- **Answer to the error-recovery question, on this perturbation:** System 2 notices the error reliably from gripper signals alone. Recovering from it is limited by System 1's execution, not by System 2's command.
+- **System 2 detected every drop.** Fused went back to the pick in all 8 episodes, 12 to 14 steps after the perturbation and within 1 to 3 steps of the oracle's simulator-based "undone".
+- **The detection changed no outcome.** Fused and fused without recovery succeeded and failed on exactly the same 8 episodes. pi0.5 picks the bowl up again under the place command too, and without recovery it often did so faster (median 150 against 190 steps).
+- **Oracle recovery is no better:** 5/8. Its extra re-picks won one episode (stove, seed 1, after three re-picks) and lost two that the other conditions won.
+- **Answer to the error-recovery question, on this perturbation:** System 2 notices the error reliably from gripper signals alone. Re-commanding the pick does not improve on what pi0.5 does by itself, and the episodes that fail are lost in System 1's execution.
 
 ### 17. Final dual system on all 10 `libero_10` scenes, start B, two seeds
 

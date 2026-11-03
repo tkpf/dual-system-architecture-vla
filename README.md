@@ -161,16 +161,16 @@ Fused switches came 0 to 13 steps after simulator truth, and none was wrong. Ato
 - **Bottleneck:** 13 of fused's 16 failures also fail under oracle switching, so they are System 1's.
 - **No pairwise difference is significant** (smallest p = 0.18, passthrough against fused).
 
-**Error recovery (run 16):** forced drop of the bowl mid-carry, 2 scenes × 2 seeds.
+**Error recovery (run 16):** forced drop of the bowl mid-carry, 2 scenes × 4 seeds.
 
 | Condition | Success |
 |---|---|
-| passthrough | 2/4 |
-| fused | 2/4 |
-| fused without recovery | 2/4 |
-| oracle | 3/4 |
+| passthrough | 5/8 |
+| fused | 6/8 |
+| fused without recovery | 6/8 |
+| oracle | 5/8 |
 
-System 2 detects every drop, but recovering does not change the outcome.
+System 2 detects all 8 drops, but its outcomes are identical with and without recovery in every episode.
 
 The draft research report is [docs/REPORT.md](docs/REPORT.md).
 
@@ -228,7 +228,7 @@ Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in 
 | Question | Current answer |
 |---|---|
 | **Counterfactual** | Removing System 2 does not hurt: passthrough 9/20 against fused 4/20 on `libero_10` (run 17), and 4/4 each on `libero_goal` (run 13). Freezing it hurts on `libero_goal` (1/4). Shuffled commands were not run |
-| **Error recovery** | System 2 detects a forced drop as reliably as the simulator, but success is the same with and without recovery (2/4 each, oracle 3/4, run 16). Recovery is limited by System 1's execution |
+| **Error recovery** | System 2 detects a forced drop as reliably as the simulator, but success is the same with and without recovery in all 8 episodes (6/8 each, passthrough 5/8, oracle 5/8, run 16). Recovery is limited by System 1's execution |
 | **Bottleneck** | With the final System 2: System 1 execution under atomic commands. 13 of fused's 16 failures on `libero_10` also fail under oracle switching (run 17). The earlier VLM-only System 2 failed on perception (runs 5, 11 and 12) |
 
 ## Deliverables still open
