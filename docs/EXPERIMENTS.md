@@ -17,6 +17,8 @@ The `data/` folder is not committed. Folder names below refer to the local copy.
 9. **Showing the frame from the start of the subtask helps Qwen 4B and 8B most among nine prompt styles, but not enough.** AUROC rose from 0.64–0.66 to 0.71–0.72; still about 32% false "done" at the best threshold. One camera instead of two, describing first and multiple choice did not beat it (run 12).
 10. **A System 2 that switches on gripper signals, with the VLM only for "turn on", matched oracle switching in a small first test.** In 16 episodes, fused System 2, passthrough and oracle each succeeded 4/4; keeping the first atomic command (frozen) succeeded 1/4. pi0.5 alone also succeeded everywhere, so these scenes cannot show System 2 helping (run 13).
 11. **On `libero_10` scenes where pi0.5 alone failed, every System 2 condition rescued the same 2 of 4, and the other 2 failed even with oracle switching.** Frozen, fused and oracle each reached 2/4 against 0/4 for passthrough. The rescue therefore does not come from progress tracking, and the remaining failures are System 1 execution. In two-object tasks the gripper signal fired on grasps the simulator did not count for the named object (10 of 11 signal switches) (run 14).
+12. **Over all 10 `libero_10` scenes from start B with two seeds, the whole instruction did best and System 2 did not help.** Passthrough 9/20, frozen 7/20, fused 4/20, oracle switching 5/20. 13 of fused's 16 failures also failed under oracle switching, so the bottleneck is System 1 under atomic commands. No pairwise difference is significant (smallest p = 0.18) (runs 15 and 17).
+13. **System 2 detects a dropped object as reliably as the simulator does, but recovery does not improve success.** In a forced-drop test on two bowl scenes, fused noticed every drop within 1 to 2 steps of the oracle. Its outcomes were identical with and without recovery (2/4 each, oracle 3/4) (run 16).
 
 ## Runs
 
@@ -336,6 +338,40 @@ Without the drop, all four conditions succeeded on these scenes (run 13, seed 1)
 - **Oracle's one extra success** (stove, seed 1) came after three re-picks. Fused would have needed the same persistence: its second "dropped" at step 149 sent it back to the pick, but its third pick was followed by a place signal at step 207 without success.
 - **Answer to the error-recovery question, on this perturbation:** System 2 notices the error reliably from gripper signals alone. Recovering from it is limited by System 1's execution, not by System 2's command.
 
+### 17. Final dual system on all 10 `libero_10` scenes, start B, two seeds
+
+Folder `data/20261103-0152_libero10/libero10` (`final.jsonl` with both seeds, `final_report.txt`, `side_by_side/` with 20 2×2 videos, `videos/`), commit `af279a9` for seed 2, `eval.final`, L4. This is run 15 plus a second seed: the same scenes and start, with different rollout noise. 80 episodes.
+
+| `libero_10` task | passthrough | frozen | fused | oracle |
+|---|---|---|---|---|
+| 0 alphabet soup + tomato sauce | 2/2 | 1/2 | 0/2 | 0/2 |
+| 1 cream cheese box + butter | 0/2 | 1/2 | 1/2 | 1/2 |
+| 2 turn on stove + moka pot | 0/2 | 1/2 | 1/2 | 1/2 |
+| 3 black bowl in drawer + close | 2/2 | 1/2 | 0/2 | 1/2 |
+| 4 two mugs on two plates | 1/2 | 2/2 | 1/2 | 0/2 |
+| 5 book in caddy | 2/2 | 0/2 | 1/2 | 1/2 |
+| 6 mug on plate + pudding | 0/2 | 0/2 | 0/2 | 0/2 |
+| 7 alphabet soup + cream cheese box | 0/2 | 1/2 | 0/2 | 1/2 |
+| 8 both moka pots on stove | 2/2 | 0/2 | 0/2 | 0/2 |
+| 9 mug in microwave + close | 0/2 | 0/2 | 0/2 | 0/2 |
+| **Success** | **9/20** | **7/20** | **4/20** | **5/20** |
+
+**Paired comparisons** over the 20 scene-seed pairs, with exact sign tests on the discordant pairs:
+
+| Pair | Only first succeeded | Only second succeeded | p |
+|---|---|---|---|
+| passthrough vs fused | 7 | 2 | 0.18 |
+| passthrough vs oracle | 7 | 3 | 0.34 |
+| passthrough vs frozen | 6 | 4 | 0.75 |
+| frozen vs fused | 4 | 1 | 0.38 |
+| fused vs oracle | 2 | 3 | 1.00 |
+
+- **The ordering held with two seeds:** passthrough is ahead of every atomic-command condition, and fused is about equal to oracle (the same outcome in 15 of 20 pairs). No difference is significant at this sample size.
+- **Attribution of fused's 16 failures:** 13 also failed under oracle switching (System 1 execution or the atomic interface), and 3 succeeded under oracle (System 2 or noise). In run 15, the one such case was rollout noise.
+- **Atomic commands make pi0.5 less consistent.** With the whole instruction, both seeds gave the same outcome in 9 of 10 scenes. With atomic commands they agreed in only 5 or 6 of 10 (frozen 5, fused 6, oracle 5). The book scene flipped between seeds: oracle succeeded and fused failed in seed 1, the reverse in seed 2, both times with switches 1 step apart.
+- **VLM act checks:** the stove check was right when it fired. The close checks fired four times: twice for the microwave while it was closed, and twice for the drawer while it was still open (run 15 noted the lenient probabilities).
+- **Never solved:** tasks 6 and 9 failed under every condition and seed. Task 8 (both moka pots) succeeded only with the whole instruction.
+
 ## Practical measurements
 
 | Measure | Value |
@@ -355,6 +391,6 @@ Hub checkpoint sizes, for planning: Qwen 2B 4.3 GB, 4B 8.9 GB, 8B 17.5 GB, SmolV
 ## Open questions
 
 - Answered: pi0.5 does follow subtask commands (run 10).
-- Can a System 2 judge progress without a trained VLM? Runs 11 and 12 say not from images alone: the best untrained setup (Qwen 4B, before/after) reaches AUROC 0.71 with about 32% false "done" per frame. Gripper signals for pick and place, with the VLM only for act subtasks, matched oracle switching in run 13 (16 episodes, easy scenes). On `libero_10` scenes where pi0.5 alone fails (run 14), it did no better than a frozen command, and the signal cannot tell which object is held. Still open: checking the held object, for example with the wrist camera, and recoveries actually exercised.
+- Can a System 2 judge progress without a trained VLM? Runs 11 and 12 say not from images alone: the best untrained setup (Qwen 4B, before/after) reaches AUROC 0.71 with about 32% false "done" per frame. Gripper signals for pick and place, with the VLM only for act subtasks, matched oracle switching in run 13 (16 episodes, easy scenes). Over all `libero_10` scenes (runs 15 and 17) it is as good as oracle switching, but atomic commands themselves cost success with pi0.5, and the signal cannot tell which object is held. Still open: checking the held object, for example with the wrist camera, and recoveries actually exercised.
 - Does SmolVLA learn to follow subtask commands if the top layers of its language model also train, or if gibberish frames are trained to stay still? Run 9 shows that training the expert alone does not.
 - Do the actions actually change at a command switch? The queue clearing is unit-tested, but actions were not compared at the switch.

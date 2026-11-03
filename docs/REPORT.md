@@ -1,6 +1,6 @@
 # Dual-System VLA on LIBERO: what a System 2 adds to pi0.5, and what it does not
 
-*Draft, 2026-11-03. Experiment details and folders are in [EXPERIMENTS.md](EXPERIMENTS.md); run numbers below refer to it.*
+*Draft, 2026-11-03, about 2.5 pages of content. Experiment details and folders are in [EXPERIMENTS.md](EXPERIMENTS.md); run numbers below refer to it.*
 
 ## 1. Summary
 
@@ -9,7 +9,7 @@ We built a two-level policy for LIBERO. A frozen pi0.5 policy (System 1) produce
 The ablation does **not** show that System 2 improves System 1:
 
 - **Easy scenes:** pi0.5 alone and the dual system both succeed (4/4).
-- **Ten `libero_10` scenes from a shifted start:** the whole instruction beats atomic commands, even atomic commands switched by the simulator itself (5/10 against 3/10 with oracle switching).
+- **Ten `libero_10` scenes from a shifted start, two seeds:** the whole instruction beats atomic commands, even atomic commands switched by the simulator itself (9/20 against 5/20 with oracle switching and 4/20 with our System 2). None of these differences is significant at this sample size.
 - **Bottleneck:** most failures remain under oracle switching, so they come from System 1 under atomic commands, not from System 2's reasoning.
 - **Error recovery:** System 2 detects a dropped object as reliably as the simulator does, but re-commanding the pick does not change the outcome.
 
@@ -53,16 +53,18 @@ Offline, on labelled demo frames, no untrained VLM up to Qwen3-VL 8B judged reli
 
 ### 4.1 Counterfactual
 
-| Condition | `libero_goal`, 4 scenes (run 13) | `libero_10`, 10 scenes, start B (run 15) |
+| Condition | `libero_goal`, 4 scenes (run 13) | `libero_10`, 10 scenes × 2 seeds, start B (run 17) |
 |---|---|---|
-| passthrough | 4/4 (median 99 steps) | 5/10 (349) |
-| frozen | 1/4 (218) | 4/10 (376) |
-| fused | 4/4 (101) | 3/10 (501) |
-| oracle | 4/4 (102) | 3/10 (195) |
+| passthrough | 4/4 (median 99 steps) | 9/20 (349) |
+| frozen | 1/4 (218) | 7/20 (350) |
+| fused | 4/4 (101) | 4/20 (346) |
+| oracle | 4/4 (102) | 5/20 (348) |
 
 - **Commands must change for atomic commands to work.** On `libero_goal`, frozen picked the bowl up and held it.
-- **Fused switching is about as good as oracle switching.** On the single-object scenes, fused switched 0 to 2 steps from the simulator's own pick check. The stove check (VLM) switched 13 steps after the burner came on. Fused and oracle reached the same totals, with equal steps on `libero_goal`.
-- **Atomic commands themselves cost success on `libero_10`.** With oracle switching, success fell from 5/10 to 3/10. Passthrough succeeded and oracle failed on 4 scenes, and the reverse happened on 2. pi0.5 was trained on whole `libero_10` instructions, so the atomic commands are a distribution shift for it. A naive baseline, the frozen first command, does as well as the full System 2.
+- **Fused switching is about as good as oracle switching.** On the single-object scenes, fused switched 0 to 2 steps from the simulator's own pick check. The stove check (VLM) switched 13 steps after the burner came on. Fused and oracle had the same outcome in 15 of 20 `libero_10` pairs (2 fused only, 3 oracle only).
+- **Atomic commands themselves cost success on `libero_10`.** With oracle switching, success fell from 9/20 to 5/20. In the paired comparison, passthrough succeeded and oracle failed 7 times, and the reverse happened 3 times (sign test p = 0.34; fused against passthrough 2 against 7, p = 0.18). pi0.5 was trained on whole `libero_10` instructions, so the atomic commands are a distribution shift for it.
+- **Atomic commands also make outcomes less consistent.** With the whole instruction, both seeds gave the same outcome in 9 of 10 scenes; with atomic commands, in only 5 or 6.
+- **A naive baseline does as well as the full System 2.** The frozen first command reached 7/20, and fused beat it on only one pair.
 
 ### 4.2 Error recovery
 
@@ -82,15 +84,15 @@ So System 2 notices errors, but recovery is limited by execution.
 
 We attribute each failed fused episode by whether oracle switching failed on the same scene, start and seed.
 
-- **Execution (System 1):** 6 of 7 fused failures on `libero_10` also failed under oracle switching. Either System 1 cannot carry out the atomic commands, or the atomic-command interface itself is the problem. In the remaining failure, fused and oracle switched 1 step apart and the rollouts diverged, which is noise.
+- **Execution (System 1):** 13 of 16 fused failures on `libero_10` also failed under oracle switching. Either System 1 cannot carry out the atomic commands, or the atomic-command interface itself is the problem. Of the other 3, the one inspected (the book scene) had fused and oracle switching 1 step apart before the rollouts diverged. The same scene flipped the other way in the second seed, so this is noise.
 - **Reasoning (System 2):**
-  - *Gripper signals:* the gripper signal says that something is held, not what. In two-object scenes, 15 of 19 signal switches came while the simulator said the named object was not picked or placed. Mostly pi0.5 had taken the other object, or the objects in another order. This cost little, because pi0.5 largely ignores which object the command names.
-  - *VLM checks:* the stove check worked in all three runs where it applied. The drawer and microwave close checks were too lenient: Qwen gave 0.82 to 0.84 from the first look.
+  - *Gripper signals:* the gripper signal says that something is held, not what. In two-object scenes, most signal switches (32 of 41 over both seeds) came while the simulator said the named object was not picked or placed. Mostly pi0.5 had taken the other object, or the objects in another order. This cost little, because pi0.5 largely ignores which object the command names.
+  - *VLM checks:* the stove check was right whenever it fired. The close checks were too lenient: Qwen gave about 0.82 from the first look, and twice switched while the drawer was still open.
 - **How we know:** the oracle condition gives an upper bound for any progress check on the same rollout seeds. Fused reaches that bound. Every remaining gap to success is a gap that perfect reasoning does not close.
 
 ## 5. Limitations
 
-- **Small samples:** one or two seeds per scene and a single LIBERO init state. Single-scene differences between conditions are mostly noise: a one-step difference in a switch can flip an outcome (run 15, book scene).
+- **Small samples:** 20 `libero_10` scene-seed pairs, 4 `libero_goal` scenes and 4 drop episodes per condition, with a single LIBERO init state. No pairwise difference is significant. Single-scene differences between conditions are mostly noise: a one-step difference in a switch can flip an outcome (run 15, book scene).
 - **Tuning on test starts:** the gripper thresholds were set from pi0.5 command-probe traces after a failed smoke test on start C, so the start C results are not fully independent of tuning.
 - **Not run:** shuffled commands and a gibberish System 2 were not run for pi0.5 in the dual system. Gibberish was tested for System 1 alone (run 10).
 - **Object identity:** the gripper signal cannot tell which object is held. A wrist-camera check of the held object is the obvious next step.

@@ -7,7 +7,7 @@ A two-level robot policy for the [LIBERO](https://github.com/Lifelong-Robot-Lear
 
 Both models are used as pretrained. Finetuning is in progress on the `finetune` branch (`src/dual_system/finetune/`): SmolVLA on subtasks cut from LIBERO demos, and SmolVLM as a LoRA judge of finished subtasks. A first SmolVLA run did not make it follow language better (run 9 in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)). Evaluation runs live in the simulator.
 
-> **Status: work in progress.** The final System 2 (`fused`, below) matched oracle command switching in a first 16-episode test. It still has not beaten System 1 alone, because pi0.5 alone also succeeded on those scenes. Earlier VLM-only System 2 variants performed **worse** than System 1 alone. The ablation study is incomplete. See [Results so far](#results-so-far).
+> **Status: ablation done, report in draft.** The final System 2 (`fused`, below) switches commands about as well as an oracle, but it does not beat System 1 alone. On `libero_10`, the whole instruction does better than atomic commands, even with oracle switching. See [Results so far](#results-so-far) and the draft [report](docs/REPORT.md).
 
 ## Architecture
 
@@ -143,16 +143,31 @@ Full run details are in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
 Fused switches came 0 to 13 steps after simulator truth, and none was wrong. Atomic commands need a working switcher (frozen 1/4), but these scenes are easy for pi0.5 alone, so they cannot show System 2 helping. Side-by-side videos are made with `python -m dual_system.eval.final video <res>`.
 
-**On `libero_10` scenes where pi0.5 alone failed (run 14):** 4 of the 5 scenes that passthrough failed from start B, out of 10 screened.
+**All 10 `libero_10` scenes, start B, two seeds (run 17, 80 episodes):**
 
 | Condition | Success |
 |---|---|
-| passthrough | 0/4 (chosen for failing) |
-| frozen | 2/4 |
-| fused System 2 | 2/4 |
-| oracle switching | 2/4 |
+| passthrough (System 1 alone) | 9/20 |
+| frozen (first atomic command only) | 7/20 |
+| fused System 2 | 4/20 |
+| oracle switching | 5/20 |
 
-All three System 2 conditions rescued the same two scenes, frozen included, so progress tracking is not what helped. The other two scenes failed even with oracle switching: the bottleneck there is System 1 execution.
+- **Atomic commands cost success with pi0.5,** even when the simulator switches them. Fused is about as good as oracle switching (the same outcome in 15 of 20 pairs).
+- **Bottleneck:** 13 of fused's 16 failures also fail under oracle switching, so they are System 1's.
+- **No pairwise difference is significant** (smallest p = 0.18, passthrough against fused).
+
+**Error recovery (run 16):** forced drop of the bowl mid-carry, 2 scenes × 2 seeds.
+
+| Condition | Success |
+|---|---|
+| passthrough | 2/4 |
+| fused | 2/4 |
+| fused without recovery | 2/4 |
+| oracle | 3/4 |
+
+System 2 detects every drop, but recovering does not change the outcome.
+
+The draft research report is [docs/REPORT.md](docs/REPORT.md).
 
 Earlier comparisons:
 
@@ -207,9 +222,9 @@ Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in 
 
 | Question | Current answer |
 |---|---|
-| **Counterfactual** | Partial. Run 13 compares removed (`passthrough`), frozen, fused and oracle System 2 on 16 episodes: frozen 1/4, the others 4/4. Shuffled commands are not implemented, and harder scenes are needed to see System 2 help |
-| **Error recovery** | Not answered. Offset start states exist, but mid-episode perturbations are not implemented. Recovery commands ("open the gripper", "move back to the home position") did not noticeably change the robot's behaviour in the probe |
-| **Bottleneck** | With the final System 2: System 1 execution. On `libero_10` from start B, 2 of 4 scenes fail even with oracle switching (run 14). The earlier VLM-only System 2 failed on perception (runs 5, 11 and 12) |
+| **Counterfactual** | Removing System 2 does not hurt: passthrough 9/20 against fused 4/20 on `libero_10` (run 17), and 4/4 each on `libero_goal` (run 13). Freezing it hurts on `libero_goal` (1/4). Shuffled commands were not run |
+| **Error recovery** | System 2 detects a forced drop as reliably as the simulator, but success is the same with and without recovery (2/4 each, oracle 3/4, run 16). Recovery is limited by System 1's execution |
+| **Bottleneck** | With the final System 2: System 1 execution under atomic commands. 13 of fused's 16 failures on `libero_10` also fail under oracle switching (run 17). The earlier VLM-only System 2 failed on perception (runs 5, 11 and 12) |
 
 ## Deliverables still open
 
