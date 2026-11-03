@@ -9,6 +9,8 @@ passthrough  no System 2: the whole instruction
 frozen       System 2 frozen after its first command: the first atomic command for the whole episode
 fused        System 2 switches atomic commands on gripper signals, a VLM for open and turn-on, and timeouts (system2/fused.py)
 fused_norec  the same without the empty-grasp recovery
+fused_ctx, oracle_ctx  the same switching, but the prompt keeps the whole instruction and adds the current step:
+             "<instruction>. current step: <command>"
 With --perturb drop, the gripper is forced open for PERTURB_STEPS steps once it has held something for PERTURB_AFTER steps
 in a row (the same robot-side rule in every condition), so the object falls. fused then also treats a release without a
 descent as a drop and goes back to the pick, and oracle goes back to the pick when the object has left the gripper.
@@ -31,7 +33,7 @@ from .command_probe import ROBOT_STATES, object_heights
 
 CONDITIONS = ["passthrough", "frozen", "fused", "oracle"]
 PERTURB_AFTER, PERTURB_STEPS = 20, 10
-ALL_CONDITIONS = CONDITIONS + ["fused_norec"]
+ALL_CONDITIONS = CONDITIONS + ["fused_norec", "fused_ctx", "oracle_ctx"]
 
 
 def annotate(frame: np.ndarray, lines: list[str]) -> np.ndarray:
@@ -89,15 +91,17 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], condition:
     start_z = object_heights(world)
     budget = PHASE_BUDGET * len(phases)
 
+    base, ctx = condition.removesuffix("_ctx"), condition.endswith("_ctx")
+    prompt = (lambda c: f"{instruction}. current step: {c}") if ctx else (lambda c: c)
     switcher = None
-    if condition == "oracle":
+    if base == "oracle":
         switcher = OracleSwitcher(phases, timeout=PHASE_BUDGET, undo=perturb == "drop")
-    elif condition in ("fused", "fused_norec"):
-        switcher = FusedSwitcher(phases, timeout=PHASE_BUDGET, recover=condition == "fused", detect_drop=perturb == "drop" and condition == "fused")
+    elif base in ("fused", "fused_norec"):
+        switcher = FusedSwitcher(phases, timeout=PHASE_BUDGET, recover=base == "fused", detect_drop=perturb == "drop" and base == "fused")
     switcher and switcher.reset()
     command = instruction if condition == "passthrough" else phases[0]["command"] if condition == "frozen" else switcher.command
-    system1.set_command(command)
-    plan = judge.plan(instruction, obs) if condition == "fused" and judge else None
+    system1.set_command(prompt(command))
+    plan = judge.plan(instruction, obs) if base == "fused" and judge else None
 
     commands, events, truth_at = [(0, command)], [], {}
     success, first_success = False, None
@@ -124,7 +128,7 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], condition:
             truth = bool(phase_done(phase, goals, world.gripped, rises))
             if truth:
                 truth_at.setdefault(switcher.idx, obs.t)
-            if condition == "oracle":
+            if base == "oracle":
                 held = world.gripped(next(k for k in goals if phase["goal"] in k).split()[1]) if phase["kind"] == "place" else None
                 event = switcher.update(obs.t, truth, held)
             else:
@@ -134,7 +138,7 @@ def run_episode(world, system1, state, seed: int, phases: list[dict], condition:
                 events.append(event)
                 if switcher.command != command:
                     command = switcher.command
-                    system1.set_command(command)
+                    system1.set_command(prompt(command))
                     commands.append((obs.t, command))
         if frames is not None:
             head = f"{condition}  t={obs.t}" + ("  PERTURBATION: gripper forced open" if forced else "")
