@@ -143,7 +143,7 @@ Full run details are in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
 Fused switches came 0 to 13 steps after simulator truth, and none was wrong. Atomic commands need a working switcher (frozen 1/4), but these scenes are easy for pi0.5 alone, so they cannot show System 2 helping. Side-by-side videos are made with `python -m dual_system.eval.final video <res>`.
 
-**Rollout videos** show 2×2 panels: passthrough and frozen on top, fused and oracle below (fused without recovery in the drop video). Each panel shows the command System 2 is sending.
+**Rollout videos** show 2×2 panels: passthrough and frozen on top, fused and oracle below. In the drop video, the frozen panel is empty because frozen was not run. Each panel shows the command System 2 is sending.
 - [libero_goal_bowl_on_stove_C.mp4](docs/videos/libero_goal_bowl_on_stove_C.mp4): an easy scene. Frozen holds the bowl and never places it.
 - [libero_10_stove_moka_B.mp4](docs/videos/libero_10_stove_moka_B.mp4): turn on the stove, then the moka pot. Here the atomic commands succeed where the whole instruction fails.
 - [drop_bowl_on_stove_C.mp4](docs/videos/drop_bowl_on_stove_C.mp4): the bowl is forced out of the gripper mid-carry. Fused notices it and commands a new pick, and oracle recovers after three re-picks.
