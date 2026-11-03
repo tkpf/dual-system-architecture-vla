@@ -96,6 +96,7 @@ We attribute each failed fused episode by whether oracle switching failed on the
 - **Tuning on test starts:** the gripper thresholds were set from pi0.5 command-probe traces after a failed smoke test on start C, so the start C results are not fully independent of tuning.
 - **Not run:** shuffled commands and a gibberish System 2 were not run for pi0.5 in the dual system. Gibberish was tested for System 1 alone (run 10).
 - **Object identity:** the gripper signal cannot tell which object is held. A wrist-camera check of the held object is the obvious next step.
+- **Interface not varied:** the main cost found here comes from bare atomic commands. A prompt that keeps the whole instruction and adds the current step (`oracle_ctx` and `fused_ctx` in `eval.final`) is implemented but was not run before the compute session ended. It is the most direct test of whether System 2's output can help pi0.5 at all.
 
 ## 6. Reproducing
 
