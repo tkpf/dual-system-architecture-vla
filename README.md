@@ -1,61 +1,80 @@
 # Dual-System VLA on LIBERO
 
-A two-level robot policy for the [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) manipulation benchmark, built on [LeRobot](https://github.com/huggingface/lerobot). The challenge brief is in [CHALLENGE.md](CHALLENGE.md).
+A Dual-System policy for the [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) benchmark, built on [LeRobot](https://github.com/huggingface/lerobot). It answers the brief in [CHALLENGE.md](CHALLENGE.md).
 
-- **System 2** (slow): a frozen Qwen3-VL-2B vision-language model inside a rule-based supervisor. It splits the instruction into atomic commands and judges progress from camera images.
-- **System 1** (fast): a frozen pi0.5 policy (`lerobot/pi05_libero_finetuned_v044`) that turns the current command and the observation into robot actions. SmolVLA is still supported and was the first System 1.
+- **System 2** (slow, semantic): a deterministic supervisor. It plans atomic commands once and decides when to switch to the next one. It uses robot signals (gripper width, hand height) and a frozen Qwen3-VL 2B for subtasks no signal shows.
+- **System 1** (fast, reactive): a frozen pi0.5 (`lerobot/pi05_libero_finetuned_v044`). It turns the current command and the observation into a 7-D action at every simulation step.
+- **Interface:** one English sentence, written into System 1's prompt. No latent embedding, so every step is readable and easy to ablate.
 
-Both models are used as pretrained. Finetuning is in progress on the `finetune` branch (`src/dual_system/finetune/`): SmolVLA on subtasks cut from LIBERO demos, and SmolVLM as a LoRA judge of finished subtasks. A first SmolVLA run did not make it follow language better (run 9 in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)). Evaluation runs live in the simulator.
+**Main finding:** System 2 switches commands about as well as an oracle and detects every forced drop, but it does **not** improve System 1. Execution under atomic commands is the bottleneck, not reasoning. Details below.
 
-> **Status: ablation done, report in draft.** The final System 2 (`fused`, below) switches commands about as well as an oracle, but it does not beat System 1 alone. On `libero_10`, the whole instruction does better than atomic commands, even with oracle switching. See [Results so far](#results-so-far) and the draft [report](docs/REPORT.md).
+## Deliverables
+
+| Requirement | Where |
+|---|---|
+| Codebase (Dual-System, training loop, LeRobot evaluation) | [src/](src/): [dual_system/](src/dual_system/) (policy, evaluation, finetuning), [infra/](src/infra/) (Colab) |
+| README setup guide | [Setup](#setup), [Data](#data), [Running the evaluation](#running-the-evaluation), [Training loop](#training-loop-finetuning) |
+| Rollout videos with System 2 output | [Rollout videos](#rollout-videos) |
+| Research report, max 3 pages | [report.pdf](report.pdf) (3 pages). Source: [docs/report.tex](docs/report.tex), build in `docs/` with `pdflatex report.tex`, twice |
+| Ablation study | [Ablation results](#ablation-results), full log in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) |
+
+## Challenge questions
+
+| Question | Answer | Evidence |
+|---|---|---|
+| **Counterfactual:** System 2 removed, frozen or naive? | Removing it does not hurt: 9/20 without System 2 against 4/20 with it on `libero_10`. Freezing it hurts on `libero_goal` (1/4). No difference is significant (smallest p = 0.18) | runs 13, 17 |
+| **Error recovery:** does System 2 help after a perturbation? | It detects all 8 forced drops within 1 to 3 steps of the simulator. Success is the same with and without recovery (6/8 each). pi0.5 re-picks the bowl by itself | run 16 |
+| **Bottleneck:** reasoning or execution? | Execution. 13 of fused's 16 `libero_10` failures also fail under oracle switching, so no better progress check would have saved them | run 17 |
+
+Counterfactual conditions: `passthrough` (System 2 removed, whole instruction), `frozen` (first atomic command for the whole episode), `fused` (final System 2), `oracle` (the simulator decides when a phase is done, an upper bound for any progress check). Not run: shuffled commands and a gibberish System 2 inside the dual system for pi0.5. Gibberish was tested for System 1 alone (run 10).
 
 ## Architecture
 
 ```text
- instruction ──► System 2 (runs when a trigger fires)
-                 ├─ gate       is the instruction sensible?
-                 ├─ decompose  split it into atomic commands
-                 ├─ check      running / done / failed?  (2 agreeing answers needed)
-                 ├─ recover    "open the gripper", "move back to the home position"
-                 └─ judge      end the episode with a success or failure verdict
-                      │
-                      │ one English sentence
-                      ▼
- camera + state ─► System 1: pi0.5 ──► 7-D action at every sim step ──► LIBERO
+instruction ──► System 2 ──────────────────────────────────────────────┐
+                 decompose once: plan of atomic commands                │ one English
+                 per step: gripper width, hand height ──► phase done?  │ sentence
+                 act phases only: Qwen3-VL 2B, P("done") ≥ 0.8 twice    │
+                 timeouts, empty-grasp and drop recovery                ▼
+camera + proprioception ───────────────────────────────► System 1: pi0.5 ──► 7-D action, 20 Hz ──► LIBERO
 ```
 
-**Interface.** System 2 passes plain text, written into the prompt that System 1 reads. When the command changes, System 1's queued actions are discarded. Text is readable in videos and easy to freeze, swap or corrupt for an ablation.
+- **Plan:** atomic commands come from the subtask segmentation of the LIBERO demos ([finetune/segment.py](src/dual_system/finetune/segment.py)). Qwen's own decomposition is logged next to it but not used.
+- **Pick done:** the gripper holds something for 8 steps and the hand rose 3 cm.
+- **Place done:** the gripper reopens after a hold. With drop detection on, the hand must also have come down at least 2 cm while holding.
+- **Act done** (open, close, turn on): Qwen3-VL 2B is asked a yes/no question every 10 steps. Its probability of "yes" must reach 0.8 twice in a row.
+- **Safety:** every phase times out after 150 steps, an empty grasp triggers "open the gripper" and a retry, and System 2 never ends an episode.
+- **Queue:** when the command changes, System 1's queued actions are discarded.
 
-**When System 2 runs.** Triggers call it every 20 steps, and also on a gripper toggle, when the robot stops moving, on an empty grasp, and after a time limit on one command (300 steps, or 150 in the phase-aware condition). They are set per condition, for example in [full_free_atomic.yaml](src/dual_system/configs/conditions/full_free_atomic.yaml).
+Code: [fused.py](src/dual_system/system2/fused.py) (final System 2), [eval/final.py](src/dual_system/eval/final.py) (ablation runner), [system1/base.py](src/dual_system/system1/base.py) (System 1 interface, so another policy can be swapped in).
 
-**Swappable parts.** The supervisor logic in [supervisor.py](src/dual_system/system2/supervisor.py) is deterministic. All perception goes through a `Reasoner` ([reasoners.py](src/dual_system/system2/reasoners.py)), so a different VLM changes the reasoning quality and nothing else. System 1 sits behind a small interface ([base.py](src/dual_system/system1/base.py)).
+**How the design developed.** The generic design (frozen VLM and VLA joined by text) stayed fixed. Only when System 2 runs and who judges progress changed:
 
-| Condition | What it does |
-|---|---|
-| `passthrough` | No System 2: the full instruction goes to System 1 unchanged. This is the baseline |
-| `full_free_atomic` | System 2 writes its own atomic commands and answers a one-letter progress check |
-| `full_phase_atomic` | System 2 knows all phases, its position and what a finished phase looks like, reasons briefly, and ends with the current subtask |
-| `full` | System 2 chooses commands from the candidate list in the `closed_set` profile |
-| `full_scripted` | Fixed answers instead of a VLM, for pipeline checks |
+| Version | System 2 runs | Progress judged by | Outcome |
+|---|---|---|---|
+| v1: SmolVLA | Every 20 steps plus environment triggers | Qwen3-VL 2B: running, done or failed. "Success" ends the episode | 19/36 alone, 4/36 dual |
+| v2: pi0.5 | Same | Same | 8/12 alone, 3/12 dual |
+| v3: phase-aware prompt | Triggers, 150-step timeout | VLM told phase and "done" criteria | Never declared a step done in 76 checks |
+| **v4: final** | Every step on robot signals, VLM every 10 steps for act phases | Gripper width and hand height, VLM only for "turn on", "open", "close" | Matches oracle switching |
 
-**The final System 2** ([fused.py](src/dual_system/system2/fused.py), run by [eval/final.py](src/dual_system/eval/final.py)) replaces the VLM progress check, which runs 11 and 12 showed to be unreliable. It switches atomic commands on signals the robot has: a pick is done when the gripper holds something and the hand rises, a place when the gripper reopens after a hold. Qwen 2B is asked only about subtasks no robot signal shows, such as "turn on the stove", and needs two confident answers in a row. Every phase has a timeout, an empty grasp triggers "open the gripper" and a retry, and System 2 never ends an episode. `eval.final` compares it with `passthrough`, `frozen` (the first atomic command for the whole episode) and `oracle` (the simulator decides when a phase is done) on the same scene, start and seed.
+The earlier VLM-judge conditions (`full_free_atomic`, `full_phase_atomic`, `full`, `full_scripted`) are still in [configs/conditions/](src/dual_system/configs/conditions/) and run through [eval/grid.py](src/dual_system/eval/grid.py).
 
 ## Setup
 
-### Google Colab (T4 GPU), used for all results below
+All results were produced on **Google Colab with a T4 or L4 GPU**, driven from the laptop through the [Colab MCP server](https://github.com/googlecolab/colab-mcp). There is no local GPU. LIBERO needs Linux, so a local run needs WSL2 or Linux.
 
-Set the runtime to T4 GPU, then run these in notebook cells:
+Set the runtime to a GPU, then run in notebook cells:
 
 ```bash
 !git clone https://github.com/tkpf/dual-system-architecture-vla.git /content/repo
 !pip install -q -e /content/repo
 !python -m infra start install "python -m infra install"   # background job, about 5 minutes
-!python -m infra log install                               # the install is finished when this shows the lerobot-eval path
+!python -m infra log install                               # finished when this shows the lerobot-eval path
 !python -m infra egl                                       # NVIDIA EGL libraries for rendering
-!python -m infra check                                     # must print "Tesla T4"
+!python -m infra check                                     # prints the GPU name
 ```
 
-pi0 and pi0.5 use a gated tokenizer. Accept the licence at [google/paligemma-3b-pt-224](https://huggingface.co/google/paligemma-3b-pt-224), add a read token as the Colab secret `HF_TOKEN`, and set it in the notebook before starting jobs:
+pi0 and pi0.5 use a gated tokenizer. Accept the licence at [google/paligemma-3b-pt-224](https://huggingface.co/google/paligemma-3b-pt-224), add a read token as the Colab secret `HF_TOKEN`, and set it before starting jobs:
 
 ```python
 import os
@@ -63,199 +82,157 @@ from google.colab import userdata
 os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
 ```
 
-Results were produced with LeRobot 0.6.1, transformers 5.5.4, torch 2.11.0, robosuite 1.4.0 and MuJoCo 3.8.1. The installer does not pin these versions, so a newer LeRobot may behave differently. Each run writes its exact versions and git commit to `run_info_w<N>.json`.
+- **Versions:** LeRobot 0.6.1, transformers 5.5.4, torch 2.11.0, robosuite 1.4.0, MuJoCo 3.8.1. The installer does not pin them. Each run writes its versions and git commit to `run_info_w<N>.json`.
+- **Memory:** pi0.5 plus Qwen3-VL 2B needs about 14 GB GPU memory and fits a T4. A standard T4 runtime has room for one worker.
+- **Local tests** (WSL2, Ubuntu 22.04, LeRobot in a conda env `lerobot-eval`): `wsl -d Ubuntu-22.04 -- bash scripts/wsl_test.sh python -m pytest -q tests`
 
-A standard T4 runtime (2 vCPUs, 12 GB RAM) has room for one worker only.
+## Data
 
-### Local tests (WSL2, Ubuntu 22.04)
+No dataset download is needed to evaluate. The simulator and the LIBERO tasks come from LeRobot's LIBERO pipeline and download on first use. The evaluation slice is:
 
-LIBERO needs Linux. With LeRobot installed in a conda env named `lerobot-eval`:
+| Suite | Tasks used | Why |
+|---|---|---|
+| `libero_goal` | 1 (bowl on stove), 4 (bowl on cabinet) | Easy scenes: sanity check, and the drop test |
+| `libero_10` | task 2 (stove, then moka pot) in the small run; all 10 in the main ablation | Long-horizon, two-step tasks |
 
-```bash
-wsl -d Ubuntu-22.04 -- bash scripts/wsl_test.sh python -m pytest -q tests
-```
+The three "seen" scenes are the default of `eval.final --tasks 0 1 2` (indices into `atomic.SEEN`). `--suite-tasks libero_10:<id>` selects any other task. Older SmolVLA grids also used `libero_goal` task 0 and `libero_10` tasks 0 and 3.
+
+Start states: `A` is the stored LIBERO start. `C` and `B` add a joint offset that moves the gripper about 10 cm and 19 cm, to test robustness. A pair of episodes shares task, state and seed, so it differs only in the condition.
+
+Datasets are used only for the subtask labels and the finetuning experiments:
+
+- [`lerobot/libero`](https://huggingface.co/datasets/lerobot/libero): demos for finetuning and labelling. Only `data/*` and `meta/*` are fetched by [segment.py](src/dual_system/finetune/segment.py).
+- [`yifengzhu-hf/LIBERO-datasets`](https://huggingface.co/datasets/yifengzhu-hf/LIBERO-datasets): the raw demos. They are matched to `lerobot/libero` by actions and replayed to find where each subtask ends.
+- **Dataset slice** `boundaries.jsonl` ([finetune/boundaries.jsonl](src/dual_system/finetune/boundaries.jsonl)): 1,492 of 1,693 episodes with subtask boundaries (pick, place, act). It is committed, so the slice does not have to be rebuilt. To rebuild: `python -m dual_system.finetune.segment run --out <res>/boundaries.jsonl`.
 
 ## Running the evaluation
 
-Models and tasks download on first use. All commands below assume the Colab setup.
+Models and tasks download on first use. The commands assume the Colab setup. Each run gets its own folder:
 
 ```bash
-# Every run gets its own folder, /content/runs/YYYYMMDD-HHMM (UTC), so the name that sorts last is the most recent.
 RUN = !python -m infra newrun
 RUN = RUN[0]
+```
 
-# Start the grid in the background. Finished cells are skipped when the same folder is reused after a restart.
-!python -m infra start w0 "python -m dual_system.eval.grid pi05_atomic_test --res {RUN} --stop-after-min 40"
-!python -m infra status          # one line of JSON: jobs, finished episodes, GPU and RAM
+**Reproduce the ablation** (conditions `passthrough`, `frozen`, `fused`, `oracle`, same scene, start and seed). About 40 s per episode on an L4:
 
-# Final comparison: passthrough, frozen, fused System 2 and oracle; 3 tasks x starts C,B x 2 seeds = 48 episodes
+```bash
+# the 3 seen scenes (2 libero_goal, 1 libero_10), starts C and B (run 13)
 !python -m infra start final "python -m dual_system.eval.final run --res {RUN}/final --seeds 2 --states C B"
-!python -m dual_system.eval.final report {RUN}/final
-!python -m dual_system.eval.final video {RUN}/final      # 2x2 videos in {RUN}/final/side_by_side
 
-# Tables, sub-goal CSV and side-by-side videos
-!python -m dual_system.eval.report {RUN}
-!python -m dual_system.eval.lookup {RUN} --task 0 --state B
-!python -m dual_system.eval.side_by_side {RUN}             # writes {RUN}/videos
+# all 10 libero_10 scenes, start B, 2 seeds (run 17, 80 episodes)
+!python -m infra start l10 "python -m dual_system.eval.final run --res {RUN}/libero10 --seeds 2 --states B --suite-tasks libero_10:0 libero_10:1 libero_10:2 libero_10:3 libero_10:4 libero_10:5 libero_10:6 libero_10:7 libero_10:8 libero_10:9"
 
-# Does System 1 follow a command? No System 2, compared with a gibberish control
-!python -m infra start probe "python -m dual_system.eval.command_probe --res {RUN}/probe"
+# error recovery: forced drop mid-carry (run 16)
+!python -m infra start drop "python -m dual_system.eval.final run --res {RUN}/drop --tasks 0 1 --states C --seeds 4 --conditions passthrough fused fused_norec oracle --perturb drop"
 
-# Atomic commands at fixed steps, recorded, for two models, stitched side by side
+# tables and 2x2 videos (passthrough, frozen / fused, oracle)
+!python -m dual_system.eval.final report {RUN}/libero10
+!python -m dual_system.eval.final video {RUN}/libero10      # writes side_by_side/
+!python -m infra status                                    # jobs, finished episodes, GPU and RAM
+```
+
+Finished cells are skipped when a folder is reused after a restart. Downloaded results land in `data/YYYYMMDD-HHMM` (ignored by git). Each episode writes its outcome, every command and how it ended, every System 2 call with its raw answer, and an `episode.mp4`.
+
+**Other experiments** (all in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)):
+
+```bash
+# does System 1 follow a command? No System 2, compared with a gibberish control (run 2)
+!python -m dual_system.eval.command_probe --res {RUN}/probe
+# atomic commands at fixed steps, two models side by side (run 3)
 !python -m dual_system.eval.command_probe --type pi05 --path lerobot/pi05_libero_finetuned_v044 --kinds schedule --only-first --seeds 2 --states C B --video --res {RUN}/pi05
 !python -m dual_system.eval.command_probe --type smolvla --path lerobot/smolvla_libero_plus --kinds schedule --only-first --seeds 2 --states C B --video --res {RUN}/smolvla
 !python -m dual_system.eval.compare_probe {RUN}/pi05 {RUN}/smolvla --out {RUN}/side_by_side
-
-# Can a VLM see what System 2 has to judge? Yes/no questions scored against simulator truth, no robot control
+# older VLM-judge System 2 against System 1 alone
+!python -m dual_system.eval.grid pi05_atomic_test --res {RUN} --stop-after-min 40
+# can a VLM see what System 2 has to judge? (runs 6, 11, 12)
 !python -m dual_system.eval.perception collect --res {RUN}
-!python -m dual_system.eval.perception run qwen2b --res {RUN}   # also smolvlm, qwen4b, qwen8b (8b needs bitsandbytes)
-!python -m dual_system.eval.perception report --res {RUN}
+!python -m dual_system.eval.perception run qwen2b --res {RUN}
 ```
 
-Downloaded results land in `data/YYYYMMDD-HHMM`, using the local download time, so the name that sorts last is the most recent.
+## Training loop (finetuning)
 
-| Config | Purpose |
-|---|---|
-| `pi05_atomic_test` | pi0.5, `passthrough` vs `full_free_atomic`, 3 tasks, shifted starts C and B, 2 seeds: 24 episodes |
-| `pi05_phase_test` | pi0.5, `passthrough` vs `full_phase_atomic`, 3 tasks, state A, 2 seeds, 300-step limit: 12 episodes |
-| `free_atomic_test` | SmolVLA, `passthrough` vs `full_free_atomic`, 6 tasks, 3 robot start states, 2 seeds: 72 episodes |
-| `profiles_test` | Compares the `closed_set` and `free_atomic` command profiles |
-| `libero_plus_checkpoint` | SmolVLA alone, with the checkpoint trained on `lerobot/libero_plus` |
-| `first_test` | The first dual-system run, kept for reference |
-| `smoke` | Short check with real SmolVLA and no VLM. Runs on CPU |
+The final system is frozen, so it needs no training. The training code is the finetuning that was tried and did not help (runs 9 and 10). It lives on the `finetune` branch and in [src/dual_system/finetune/](src/dual_system/finetune/):
 
-Robot start states: `A` is the stored LIBERO start. `C` and `B` add a joint offset that moves the gripper about 10 cm and 19 cm. A pair of episodes shares its task, state and seed, so the pair differs only in the condition.
+```bash
+# System 1: train the action expert on subtask-labelled demos (SmolVLA or pi0.5), then export a loadable folder
+!python -m dual_system.finetune.system1 train --res {RUN} --boundaries src/dual_system/finetune/boundaries.jsonl --type pi05 --steps 400
+!python -m dual_system.finetune.system1 export --res {RUN} --step 400 --out {RUN}/export --type pi05
 
-Each cell folder holds `episodes.jsonl` (outcome), `subgoals.jsonl` (each command and how it ended), `trace.jsonl` (every System 2 call with its raw answer), `steps.jsonl`, keyframes and `episode.mp4`.
+# System 2: LoRA SmolVLM as a judge of finished subtasks (written and unit-tested, not run)
+!python -m dual_system.finetune.collect_judge --path <checkpoint> --res {RUN}
+!python -m dual_system.finetune.system2 train --data {RUN} --res {RUN}
+```
 
-## Results so far
+Training resumes from the newest checkpoint. Held-out tasks and 10% of demos per task are never trained on. Result: validation loss fell, but command following did not improve (pi0.5: 17/28 goals against 21/28 for stock).
 
-Full run details are in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+## Rollout videos
 
-**Final dual system (run 13, 16 episodes):** the 3 tasks from start C and bowl-on-stove from start B, stock pi0.5 as System 1.
+2×2 panels: passthrough and frozen on top, fused and oracle below. Each panel shows the command System 2 sends. In the drop video the frozen panel is empty because frozen was not run.
 
-| Condition | Success | Median steps |
-|---|---|---|
-| passthrough (System 1 alone) | 4/4 | 99 |
-| frozen (first atomic command only) | 1/4 | 218 |
-| fused System 2 | 4/4 | 101 |
-| oracle switching | 4/4 | 102 |
-
-Fused switches came 0 to 13 steps after simulator truth, and none was wrong. Atomic commands need a working switcher (frozen 1/4), but these scenes are easy for pi0.5 alone, so they cannot show System 2 helping. Side-by-side videos are made with `python -m dual_system.eval.final video <res>`.
-
-**Rollout videos** show 2×2 panels: passthrough and frozen on top, fused and oracle below. In the drop video, the frozen panel is empty because frozen was not run. Each panel shows the command System 2 is sending.
 - [libero_goal_bowl_on_stove_C.mp4](docs/videos/libero_goal_bowl_on_stove_C.mp4): an easy scene. Frozen holds the bowl and never places it.
-- [libero_10_stove_moka_B.mp4](docs/videos/libero_10_stove_moka_B.mp4): turn on the stove, then the moka pot. Here the atomic commands succeed where the whole instruction fails.
+- [libero_10_stove_moka_B.mp4](docs/videos/libero_10_stove_moka_B.mp4): turn on the stove, then the moka pot. Atomic commands succeed where the whole instruction fails.
 - [drop_bowl_on_stove_C.mp4](docs/videos/drop_bowl_on_stove_C.mp4): the bowl is forced out of the gripper mid-carry. Fused notices it and commands a new pick, and oracle recovers after three re-picks.
+
+All episodes of the two ablation runs (run 17 on `libero_10`, run 13 on `libero_goal`) are in [docs/videos/INDEX.md](docs/videos/INDEX.md), with the outcome of every condition. New videos: `eval.final video <res>`.
+
+## Ablation results
 
 **All 10 `libero_10` scenes, start B, two seeds (run 17, 80 episodes):**
 
 | Condition | Success |
 |---|---|
-| passthrough (System 1 alone) | 9/20 |
+| passthrough (System 2 removed) | 9/20 |
 | frozen (first atomic command only) | 7/20 |
 | fused System 2 | 4/20 |
 | oracle switching | 5/20 |
 
-- **Atomic commands cost success with pi0.5,** even when the simulator switches them. Fused is about as good as oracle switching (the same outcome in 15 of 20 pairs).
-- **Bottleneck:** 13 of fused's 16 failures also fail under oracle switching, so they are System 1's.
-- **No pairwise difference is significant** (smallest p = 0.18, passthrough against fused).
+- **Atomic commands cost success with pi0.5,** even when the simulator switches them. pi0.5 was trained on whole instructions.
+- **Fused is about as good as oracle:** the same outcome in 15 of 20 pairs.
+- **Atomic commands make outcomes less repeatable:** both seeds agree in 9/10 scenes with the whole instruction, in 5 to 6 of 10 with atomic commands.
+- **No pairwise difference is significant** (passthrough against fused: 7 against 2 pairs, p = 0.18).
 
-**Error recovery (run 16):** forced drop of the bowl mid-carry, 2 scenes × 4 seeds.
+**`libero_goal`, 4 scenes (run 13):** passthrough 4/4, frozen 1/4, fused 4/4, oracle 4/4. These scenes are easy for pi0.5 alone, so they cannot show System 2 helping.
 
-| Condition | Success |
-|---|---|
-| passthrough | 5/8 |
-| fused | 6/8 |
-| fused without recovery | 6/8 |
-| oracle | 5/8 |
+**Error recovery, forced drop, 2 scenes × 4 seeds (run 16):**
 
-System 2 detects all 8 drops, but its outcomes are identical with and without recovery in every episode.
+| passthrough | fused | fused without recovery | oracle |
+|---|---|---|---|
+| 5/8 | 6/8 | 6/8 | 5/8 |
 
-The draft research report is [docs/REPORT.md](docs/REPORT.md).
+System 2 detects all 8 drops, but outcomes are identical with and without recovery in every episode.
 
-Earlier comparisons:
+**Bottleneck (run 17):** 13 of fused's 16 failures also fail under oracle switching (System 1 execution or the atomic interface). 3 succeed under oracle (System 2 or noise). Remaining System 2 weaknesses: the gripper signal shows that something is held, not what, and Qwen's "close" checks are lenient.
 
-| Comparison | System 1 alone, or first model | Dual, or second model |
-|---|---|---|
-| pi0.5 vs SmolVLA on a fixed atomic schedule, shifted starts | pi0.5 5/12 | SmolVLA 0/12 |
-| pi0.5 alone vs dual (`full_free_atomic`), shifted starts | 8/12 | 3/12 |
-| pi0.5 alone vs dual (`full_phase_atomic`), stored start, 300 steps | 6/6 | 2/6 |
-| SmolVLA alone vs dual (`full_free_atomic`), 3 start states | 19/36 | 4/36 |
-| SmolVLA finetuned 600 steps on subtasks, seen scenes, real vs gibberish commands (1 episode each) | 2/3 goals | 1/3 goals |
+## Limitations
 
-pi0.5 is the stronger System 1, but no dual variant has beaten System 1 alone overall. The phase-aware System 2 removed false successes but never declared a step finished, in 76 checks. Comparing its answers with camera frames shows why: Qwen 2B calls a glowing red burner dark and a held bowl on the table. A partial offline benchmark scored Qwen 2B at 0.72 balanced accuracy on such yes/no questions, where 0.5 is chance.
-
-Finetuning SmolVLA's action expert on subtasks, with its VLM frozen, fitted the data but made it react less to the command than before (run 9). On the seen scenes it finished more subtasks than stock SmolVLA, but about as many with gibberish.
-
-### SmolVLA in detail
-
-From the full `free_atomic_test` grid at commit `c7452e6`: 72 episodes over `libero_goal` tasks 0, 1 and 4 and `libero_10` tasks 0, 2 and 3, with 2 seeds per cell.
-
-| Start state | SmolVLA alone | Dual system |
-|---|---|---|
-| A (stored start) | 12/12 | 2/12 |
-| C (about 10 cm shift) | 5/12 | 2/12 |
-| B (about 19 cm shift) | 2/12 | 0/12 |
-| **Total** | **19/36** | **4/36** |
-
-Over `libero_goal`, SmolVLA alone reached 12/18 and the dual system 4/18. Over `libero_10`, the figures are 7/18 and 0/18. Of the 36 paired episodes, 15 succeeded only with SmolVLA alone and none only with the dual system.
-
-The dual system reduces success on these tasks. Nothing here shows that System 2 helps. Two separate causes show up:
-
-**System 1 follows language only weakly.** In the command probe, with no System 2 involved:
-
-| Scene | Command | Result (2 seeds, 200 steps) |
-|---|---|---|
-| `libero_goal` task 1 | "put the bowl on the stove" | Goal reached, 2/2 |
-| `libero_goal` task 1 | "pick up the bowl" | Bowl lifted and held, 2/2. This is the correct behaviour |
-| `libero_goal` task 1 | gibberish | Bowl also lifted, 2/2 |
-| `libero_10` task 2 | "turn on the stove" | Stove not turned on, 0/2 |
-| `libero_10` task 2 | "pick up the moka pot" | Stove turned on instead, pot not lifted, 2/2 |
-| `libero_10` task 2 | gibberish | Stove also turned on, 2/2 |
-
-A gibberish prompt can produce the same behaviour as a real command, so the scene drives much of what SmolVLA does. "turn on the stove" did succeed in an earlier single run in the scene where it is a benchmark task (`libero_goal` task 7), but it fails in the `libero_10` scene. This matches LIBERO-Plus and LIBERO-PRO, which report that VLAs trained on LIBERO largely ignore language.
-
-**System 2's progress check is unreliable, in both directions.**
-
-- *It misses finished steps.* "pick up the bowl" and "turn on the stove" were never judged done, so those episodes never reached their second command. In the "pick up the bowl" episodes, the gripper often closes, but the check keeps answering "still running". The 300-step timeout then coincides with the 300-step episode limit of `libero_goal`.
-- *It accepts unfinished steps.* 7 of System 2's 11 success verdicts came while the LIBERO goal was false, and each one ended the episode. All six `libero_10` task 3 episodes ran "open the drawer", "place the bowl in the drawer" and "close the drawer" to "done", and none of them succeeded.
-
-Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in that one task. So this run does not isolate System 1's handling of atomic commands. Running the same atomic commands on a fixed schedule, with no VLM, separates the two (`--kinds schedule` in the command probe).
-
-## Challenge questions
-
-| Question | Current answer |
-|---|---|
-| **Counterfactual** | Removing System 2 does not hurt: passthrough 9/20 against fused 4/20 on `libero_10` (run 17), and 4/4 each on `libero_goal` (run 13). Freezing it hurts on `libero_goal` (1/4). Shuffled commands were not run |
-| **Error recovery** | System 2 detects a forced drop as reliably as the simulator, but success is the same with and without recovery in all 8 episodes (6/8 each, passthrough 5/8, oracle 5/8, run 16). Recovery is limited by System 1's execution |
-| **Bottleneck** | With the final System 2: System 1 execution under atomic commands. 13 of fused's 16 failures on `libero_10` also fail under oracle switching (run 17). The earlier VLM-only System 2 failed on perception (runs 5, 11 and 12) |
-
-## Deliverables still open
-
-- Oracle, frozen and shuffled conditions, and mid-episode perturbations
-- A System 2 that can perceive progress. The perception benchmark decides whether a larger VLM does it
-- A gibberish control for pi0.5, to show whether it follows commands
-- A System 1 that follows subtask commands: SmolVLA with its top language layers trained, or pi0.5
-- The SmolVLM judge: data collection and LoRA training are written and unit-tested, not yet run
-- Rollout videos in the repo. They are generated by `side_by_side` but not committed
-- The research report (PDF, at most 3 pages)
+- **Small samples:** 20 scene-seed pairs, 8 drop episodes, one LIBERO init state. Single-scene differences are mostly noise.
+- **Tuning on test starts:** the gripper thresholds were set after a failed smoke test on start C.
+- **Not run:** shuffled commands and a gibberish System 2 for pi0.5 in the dual system. The prompt that keeps the whole instruction and appends the current step (`oracle_ctx`, `fused_ctx` in `eval.final`) is implemented but was not run. It is the most direct test of whether System 2's output can help pi0.5 at all.
+- **Object identity:** the gripper signal cannot tell which object is held. A wrist-camera check is the next step.
+- **Not comparable with published LIBERO numbers:** the protocol differs (shifted starts, step budgets, subset of tasks).
 
 ## Repository layout
 
 ```text
 src/dual_system/
   system1/      System 1 interface and LeRobot wrapper (SmolVLA, pi0, pi0.5)
-  system2/      supervisor, phase supervisor, reasoners (Qwen, scripted), passthrough
+  system2/      fused (final), supervisor, phase supervisor, reasoners (Qwen, scripted), passthrough
   knowledge/    command profiles: free_atomic, closed_set, phase_atomic
   configs/      experiment grids and conditions
-  eval/         grid runner, report, lookup, side-by-side videos, command probe, model comparison videos, perception benchmark, subtask evaluation (atomic)
-  finetune/     subtask labels from demos, splits, SmolVLA training, judge data and SmolVLM LoRA training, checkpoints
+  eval/         final ablation runner, grid runner, report, side-by-side videos, command probe, perception benchmark, demo judge, subtask evaluation
+  finetune/     subtask labels from demos, splits, System 1 training, judge data and SmolVLM LoRA training
   env.py, rollout.py, triggers.py, robot_states.py, tracing.py, types.py
 src/infra/      Colab install, EGL rendering, background jobs, result sync
 scripts/        WSL test runner, robot start-state tuning, local unpacking of finetuning downloads
 tests/          supervisor, trigger, rollout, perception and finetuning tests
-docs/           experiment log and research notes (PDFs of the papers are not committed)
+docs/           report, experiment log, research notes, videos
 ```
 
-Start with [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) for what was measured, [docs/RESEARCH.md](docs/RESEARCH.md) for the literature behind the design and [docs/PREREQUISITES.md](docs/PREREQUISITES.md) for the hardware constraints.
+Documents:
+
+- [docs/report.tex](docs/report.tex): the submitted report (max 3 pages).
+- [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md): every run, what it showed and what it does not show.
+- [docs/REPORT.md](docs/REPORT.md): the longer first draft of the report.
+- [docs/RESEARCH.md](docs/RESEARCH.md): literature behind the design (Hi Robot is the role model).
+- [docs/PREREQUISITES.md](docs/PREREQUISITES.md): hardware, time and experience constraints.

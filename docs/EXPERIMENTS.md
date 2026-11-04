@@ -4,6 +4,32 @@ What was run, what it showed, and what it does not show. Everything here was mea
 
 The `data/` folder is not committed. Folder names below refer to the local copy.
 
+## Grid configs and conditions
+
+Configs for `python -m dual_system.eval.grid <name>` (in `src/dual_system/configs/`):
+
+| Config | Purpose |
+|---|---|
+| `pi05_atomic_test` | pi0.5, `passthrough` vs `full_free_atomic`, 3 tasks, shifted starts C and B, 2 seeds: 24 episodes |
+| `pi05_phase_test` | pi0.5, `passthrough` vs `full_phase_atomic`, 3 tasks, state A, 2 seeds, 300-step limit: 12 episodes |
+| `free_atomic_test` | SmolVLA, `passthrough` vs `full_free_atomic`, 6 tasks, 3 robot start states, 2 seeds: 72 episodes |
+| `profiles_test` | Compares the `closed_set` and `free_atomic` command profiles |
+| `libero_plus_checkpoint` | SmolVLA alone, with the checkpoint trained on `lerobot/libero_plus` |
+| `first_test` | The first dual-system run, kept for reference |
+| `smoke` | Short check with real SmolVLA and no VLM. Runs on CPU |
+
+Conditions of the VLM-judge System 2 (v1 to v3 in the report; the final one is `eval.final`):
+
+| Condition | What it does |
+|---|---|
+| `passthrough` | No System 2: the full instruction goes to System 1 unchanged. The baseline |
+| `full_free_atomic` | System 2 writes its own atomic commands and answers a one-letter progress check. Triggers: every 20 steps, gripper toggle, robot stops, empty grasp, 300-step limit |
+| `full_phase_atomic` | System 2 knows all phases, its position and what a finished phase looks like, reasons briefly, and ends with the current subtask. 150-step limit |
+| `full` | System 2 chooses commands from the candidate list in the `closed_set` profile |
+| `full_scripted` | Fixed answers instead of a VLM, for pipeline checks |
+
+Each grid cell folder holds `episodes.jsonl` (outcome), `subgoals.jsonl` (each command and how it ended), `trace.jsonl` (every System 2 call with its raw answer), `steps.jsonl`, keyframes and `episode.mp4`.
+
 ## Summary
 
 1. **pi0.5 is the better System 1.** On the same atomic schedule from shifted starts, it reached the goal in 5/12 episodes and SmolVLA in 0/12.
@@ -35,9 +61,28 @@ Folder `2026-11-01_20-36_dual`, commit `c7452e6`. Checkpoint `lerobot/smolvla_li
 
 15 pairs succeeded only alone, none only dual. 7 of 11 System 2 success verdicts came while the goal was false.
 
+Scenes: `libero_goal` tasks 0, 1 and 4 and `libero_10` tasks 0, 2 and 3, 2 seeds per cell. Over `libero_goal`, SmolVLA alone reached 12/18 and the dual system 4/18. Over `libero_10`, the figures are 7/18 and 0/18.
+
+Two separate causes of the loss show up:
+- **System 2 misses finished steps.** "pick up the bowl" and "turn on the stove" were never judged done, so those episodes never reached their second command. The gripper often closed, but the check kept answering "still running". The 300-step timeout then coincided with the 300-step episode limit of `libero_goal`.
+- **System 2 accepts unfinished steps.** Each false success verdict ended the episode. All six `libero_10` task 3 episodes ran "open the drawer", "place the bowl in the drawer" and "close the drawer" to "done", and none succeeded.
+
+Only 14 commands after the first one ran in all 36 dual episodes, 12 of them in that one task. This run therefore does not isolate System 1's handling of atomic commands. The fixed schedule with no VLM (run 3, `--kinds schedule`) separates the two.
+
 ### 2. SmolVLA command probe
 
-Folder `2026-11-01_19-58_dual/command_probe`. No System 2, state A, 2 seeds, 200 steps for task commands. Gibberish produced the same behaviour as real commands in several cases: it lifted the bowl and turned on the stove. "pick up the moka pot" turned on the stove instead. This matches LIBERO-Plus and LIBERO-PRO.
+Folder `2026-11-01_19-58_dual/command_probe`. No System 2, state A, 2 seeds, 200 steps for task commands. Gibberish produced the same behaviour as real commands in several cases: it lifted the bowl and turned on the stove. "pick up the moka pot" turned on the stove instead. This matches LIBERO-Plus and LIBERO-PRO, which report that VLAs trained on LIBERO largely ignore language.
+
+| Scene | Command | Result (2 seeds, 200 steps) |
+|---|---|---|
+| `libero_goal` task 1 | "put the bowl on the stove" | Goal reached, 2/2 |
+| `libero_goal` task 1 | "pick up the bowl" | Bowl lifted and held, 2/2. This is the correct behaviour |
+| `libero_goal` task 1 | gibberish | Bowl also lifted, 2/2 |
+| `libero_10` task 2 | "turn on the stove" | Stove not turned on, 0/2 |
+| `libero_10` task 2 | "pick up the moka pot" | Stove turned on instead, pot not lifted, 2/2 |
+| `libero_10` task 2 | gibberish | Stove also turned on, 2/2 |
+
+"turn on the stove" did succeed in an earlier single run in the scene where it is a benchmark task (`libero_goal` task 7), but it fails in the `libero_10` scene. The scene drives much of what SmolVLA does.
 
 ### 3. pi0.5 vs SmolVLA on a fixed atomic schedule
 
