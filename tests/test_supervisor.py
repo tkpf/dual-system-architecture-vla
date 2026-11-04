@@ -1,8 +1,8 @@
 import numpy as np
 
 from dual_system.knowledge import StaticRetriever, snap_to_candidates
-from dual_system.system2.reasoners import Answer, ScriptedReasoner, parse_check, parse_json
-from dual_system.system2.supervisor import Supervisor
+from dual_system.system2.reasoners import Answer, ScriptedReasoner, parse_check, parse_json, parse_phase
+from dual_system.system2.supervisor import PhaseSupervisor, Supervisor
 from dual_system.types import Observation, S2Input, TriggerEvent, Verdict
 
 INSTR = "turn on the stove and put the moka pot on it"
@@ -183,3 +183,72 @@ def test_prompts_hold_no_vocabulary():
     for tpl in (reasoners.VALIDATE_V1, reasoners.PLAN_V1, reasoners.CHECK_V2):
         for word in ("stove", "bowl", "drawer", "move back", "open the gripper"):
             assert word not in tpl
+
+
+STEPS = ["pick up the bowl", "place the bowl on the stove"]
+
+
+def phase_sup(answers, **kw):
+    s = PhaseSupervisor(ScriptedReasoner(steps=STEPS, phase_answers=answers), StaticRetriever("phase_atomic"), recovery_steps=10, **kw)
+    s.reset("put the bowl on the stove")
+    s.decide(inp(0, ["start"]))
+    return s
+
+
+def test_parse_phase_reads_the_final_line():
+    raw = "The bowl is lifted. CURRENT SUBTASK: 1 was the start.\nCURRENT SUBTASK: 2. place the bowl on the stove"
+    assert parse_phase(raw, STEPS, 0) == {"step": "done", "subtask_index": 1, "subtask": STEPS[1]}
+    assert parse_phase("CURRENT SUBTASK: 1. pick up the bowl", STEPS, 0)["step"] == "running"
+    assert parse_phase("CURRENT SUBTASK: 1. pick up the bowl", STEPS, 1)["step"] == "back"
+    assert parse_phase("CURRENT SUBTASK: DONE", STEPS, 1)["subtask_index"] == 2
+    assert parse_phase("CURRENT SUBTASK: place the bowl on the stove", STEPS, 0)["subtask_index"] == 1
+
+
+def test_parse_phase_rejects_cut_off_and_invalid_answers():
+    assert parse_phase("The bowl is still on the table and", STEPS, 0) is None
+    assert parse_phase("CURRENT SUBTASK: 7. fly", STEPS, 0) is None
+
+
+def test_phase_definition_is_retrieved_by_kind():
+    r = StaticRetriever("phase_atomic")
+    assert "lifted" in r.phase_definition("pick up the bowl")
+    assert "open" in r.phase_definition("place the bowl on the stove")
+    assert "red" in r.phase_definition("turn on the stove")
+
+
+def test_phase_supervisor_moves_on_only_after_confirmation():
+    s = phase_sup(["CURRENT SUBTASK: 2", "CURRENT SUBTASK: 2"])
+    assert s.decide(inp(20)).command is None
+    d = s.decide(inp(40))
+    assert d.command.text == STEPS[1] and d.closes == "done"
+
+
+def test_phase_supervisor_flicker_resets_confirmation():
+    s = phase_sup(["CURRENT SUBTASK: 2", "CURRENT SUBTASK: 1", "CURRENT SUBTASK: 2"])
+    assert [s.decide(inp(t)).command for t in (20, 40, 60)] == [None, None, None]
+
+
+def test_phase_supervisor_goes_back_to_an_undone_phase():
+    s = phase_sup(["CURRENT SUBTASK: 2", "CURRENT SUBTASK: 2", "CURRENT SUBTASK: 1", "CURRENT SUBTASK: 1"])
+    s.decide(inp(20)), s.decide(inp(40))
+    assert s.decide(inp(60)).command is None
+    d = s.decide(inp(80))
+    assert d.command.text == STEPS[0] and d.closes == "failed"
+
+
+def test_phase_supervisor_ends_with_success_after_the_last_phase():
+    s = phase_sup(["CURRENT SUBTASK: 2", "CURRENT SUBTASK: 2", "CURRENT SUBTASK: DONE", "CURRENT SUBTASK: DONE"])
+    s.decide(inp(20)), s.decide(inp(40)), s.decide(inp(60))
+    assert s.decide(inp(80)).verdict == Verdict.SUCCESS
+
+
+def test_phase_supervisor_recovers_on_timeout():
+    s = phase_sup(["CURRENT SUBTASK: 1"])
+    d = s.decide(inp(150, ["subgoal_timeout"]))
+    assert d.command.kind == "recovery" and d.closes == "failed"
+
+
+def test_phase_supervisor_ignores_unusable_answers():
+    s = phase_sup(["I cannot tell"])
+    d = s.decide(inp(20))
+    assert d.command is None and d.verdict is None

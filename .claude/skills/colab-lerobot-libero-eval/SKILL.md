@@ -10,8 +10,8 @@ Status of what was actually run (2026-10-31, LeRobot 0.6.1, Colab Python 3.13, T
 | Policy | Checkpoint | Status |
 |---|---|---|
 | SmolVLA | `lerobot/smolvla_libero` | Works. Smoke test libero_spatial task 0, 2 episodes: 2/2 success, about 71 s per episode |
-| pi0.5 | `lerobot/pi05_libero_finetuned_v044` | Loads on the GPU with the launcher below. Blocked by the gated tokenizer (no HF token yet), so no episode has run |
-| pi0 | `lerobot/pi0_libero_finetuned_v044` | Same as pi0.5. Not run |
+| pi0.5 | `lerobot/pi05_libero_finetuned_v044` | Works through `dual_system` since 2026-11-01, with the HF token set: about 0.35 s per sim step, about 10.3 GB GPU. Results are in `docs/EXPERIMENTS.md`. Not run through stock `lerobot-eval` |
+| pi0 | `lerobot/pi0_libero_finetuned_v044` | Loads on the GPU with the launcher below. Not run |
 
 SmolVLA, 1 episode per task from a random stored initial state (section 5b), 10 tasks per suite, `n_action_steps=10`, `--seed=1000`, `INIT_SEED=0`:
 
@@ -24,7 +24,7 @@ SmolVLA, 1 episode per task from a random stored initial state (section 5b), 10 
 
 Only 10 episodes per suite, one random state per task, so differences below about 30 percentage points are within sampling noise. These are not the official 50-state protocol and are not comparable with published numbers. The times come from the eval's `eval_s` and include the env setup.
 
-Not done yet: a working batch_size above 1 (the batch_size=5 run hung or ran out of RAM, section 7), pi0 / pi0.5 (blocked by the gated tokenizer).
+Not done yet: a working batch_size above 1 (the batch_size=5 run hung or ran out of RAM, section 7), pi0 episodes.
 
 Other LIBERO repos seen on the Hub (not tested): `lerobot/pi05_libero_finetuned_quantiles_v044`, `lerobot/pi05-libero`, `lerobot/pi0_libero_base`, `lerobot/pi05_libero_base`, `lerobot/smolvla_libero_plus`. The `lerobot/pi05_libero_finetuned` name in `docs/research/policies-and-encoders.md` was not in the Hub listing; use the `_v044` names.
 
@@ -127,6 +127,10 @@ Episodes end on success, so a successful episode has far fewer than the 280 allo
 
 ## 6. pi0 / pi0.5
 
+Save every run under its own `YYYYMMDD-HHMM` folder (`python -m infra newrun`, see the `colab-startup` skill).
+
+The checkpoints set `compile_model: true` with `max-autotune`, which stalled the first episode for over 10 minutes on the T4. `LeRobotSystem1` turns compilation off; a stock `lerobot-eval` run needs `--policy.compile_model=false`.
+
 ### 6a. Host OOM (exit code 137) and the launcher
 
 Stock `lerobot-eval` is killed with exit code 137 and no traceback right after "Making policy". The pi0/pi0.5 backbone is built in fp32 on the CPU, then a 7.0 to 7.5 GB state dict is loaded, which exceeds the 12 GB host RAM. Building the backbone in bf16 on the CPU was not enough. Building it directly on the GPU worked: host RAM stayed at about 3 GB. Use this launcher (same CLI as `lerobot-eval`):
@@ -162,7 +166,7 @@ Run it as `python /content/run_eval.py --policy.path=lerobot/pi05_libero_finetun
 
 Caveat: during that run `nvidia-smi` showed 14.5 GB of 15 GB GPU memory used. The bf16 default-dtype patch may not have taken effect for every submodule (the backbone may be fp32 on the GPU). This is unverified and leaves little headroom on the T4. If inference runs out of GPU memory, check the parameter dtypes after construction.
 
-### 6b. Gated tokenizer (blocking, needs the user)
+### 6b. Gated tokenizer (needs the user once)
 
 The pi0 / pi0.5 processors load the tokenizer from `google/paligemma-3b-pt-224`, a gated Hugging Face repo. Without a token the run fails with `ValueError: Failed to instantiate processor step 'tokenizer_processor' ... gated repo`. The user must:
 1. Accept the licence at https://huggingface.co/google/paligemma-3b-pt-224 with their account.
@@ -258,4 +262,4 @@ Measured (libero_spatial task 0, default init state 0, sync env, batch_size 1, s
 - Whether `batch_size` above 1 helps now that rendering is on the GPU, and what the RAM limit allows.
 - Whether the policy's success rates change with the T4 renderer (different rasterisation). Only one episode was compared.
 - Whether the pi0 / pi0.5 numbers match the OpenPI / LeRobot docs (pi0.5 about 97 %). Those figures in `docs/research/policies-and-encoders.md` are from the docs, not from our runs.
-- Success rate of pi0 and pi0.5 under correct, wrong and empty prompts (the planned first experiment) has not been started.
+- Success rate of pi0 and pi0.5 under correct, wrong and empty prompts (the planned first experiment) has not been run. Only atomic schedules ran on pi0.5.

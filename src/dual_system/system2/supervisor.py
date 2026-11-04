@@ -137,3 +137,34 @@ class Supervisor(System2):
             self.steps = completed + remaining
             self.replans += 1
         return _decision(last, command=self._command(), closes="elapsed")
+
+
+class PhaseSupervisor(Supervisor):
+    """The reasoner sees all phases, the current one and its finish condition, and names the current subtask. A later
+    phase moves on by one, an earlier phase goes back to it; both need `confirmations` agreeing answers in a row."""
+
+    def reset(self, instruction):
+        super().reset(instruction)
+        self.back_count = 0
+
+    def _reset_counts(self):
+        super()._reset_counts()
+        self.back_count = 0
+
+    def _check(self, s: S2Input) -> Decision:
+        timeout = "subgoal_timeout" in s.event.reasons
+        a = self.reasoner.phase_check(self.instruction, self.steps, self.idx, self.retriever.phase_definition(self.steps[self.idx]),
+                                      s.event.reasons, self._images(s))
+        step = (a.parsed or {}).get("step")
+        can_end = self.judges and s.obs.t >= self.min_verdict_step
+        self.done_count = self.done_count + 1 if step == "done" else 0
+        self.back_count = self.back_count + 1 if step == "back" else 0
+        if self.done_count >= self.confirmations:
+            return self._on_step_done(a, can_end)
+        if self.back_count >= self.confirmations:
+            self._reset_counts()
+            self.idx, self.retries = a.parsed["subtask_index"], 0
+            return _decision(a, command=self._command(), closes="failed")
+        if timeout:
+            return self._on_failure(s, a, can_end)
+        return _decision(a)

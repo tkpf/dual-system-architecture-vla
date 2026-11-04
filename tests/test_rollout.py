@@ -1,17 +1,19 @@
 """The control loop and the video/report tools on a fake world, no simulator needed."""
 import json
+from collections import deque
 
 import numpy as np
 import pytest
 
 from dual_system.env import World
-from dual_system.eval import lookup, report, side_by_side
+from dual_system.eval import compare_probe, lookup, report, side_by_side
 from dual_system.eval.grid import build_cells
 from dual_system.interface import Identity
 from dual_system.knowledge import StaticRetriever
 from dual_system.robot_states import RobotState
 from dual_system.rollout import RolloutRunner
 from dual_system.system1.base import System1
+from dual_system.system1.lerobot_policy import clear_action_queue
 from dual_system.system2 import Passthrough, Supervisor
 from dual_system.system2.reasoners import ScriptedReasoner
 from dual_system.tracing import TraceWriter
@@ -195,3 +197,40 @@ def test_pairs_share_seed_and_order():
     assert cells[0].condition == "passthrough" and cells[1].condition == "full" and cells[0].seed == cells[1].seed
     assert cells[0].seed != cells[2].seed
     assert [c.task_id for c in cells] == [0, 0, 0, 0, 1, 1, 1, 1]
+
+
+def test_clear_action_queue_empties_the_queue_the_policy_reads():
+    class Smol:
+        _queues = {"action": deque([1, 2])}
+
+    class Pi:
+        _queues = {"action": deque([1])}
+        _action_queue = deque([1, 2])
+
+    clear_action_queue(Smol, "action")
+    clear_action_queue(Pi, "action")
+    assert not Smol._queues["action"]
+    assert not Pi._action_queue
+
+
+def test_compare_probe_stitches_episodes_present_in_both_runs(tmp_path):
+    import imageio.v2 as imageio
+
+    def run(name, steps, first_success, extra=None):
+        res = tmp_path / name
+        (res / "videos").mkdir(parents=True)
+        rows = []
+        for video in ["a.mp4"] + ([extra] if extra else []):
+            imageio.mimwrite(res / "videos" / video, [np.zeros((64, 64, 3), np.uint8)] * steps, fps=20, codec="libx264", macro_block_size=1)
+            rows.append(dict(video=video, suite="libero_goal", task=1, robot_state="C", start_shift_cm=9.4, seed=1, checkpoint=f"lerobot/{name}",
+                             command="pick > place", first_success_step=first_success, trace=[dict(t=steps)],
+                             segments=[dict(command="pick", start_step=0), dict(command="place", start_step=2)]))
+        (res / "probe.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        return res
+
+    left, right = run("pi05", 4, 3, "only_left.mp4"), run("smolvla", 6, None)
+    assert compare_probe.command_at(compare_probe.load_runs(left)["a.mp4"], 2) == "place"
+    made = compare_probe.render_all(left, right, tmp_path / "out")
+    assert [m.name for m in made] == ["a.mp4"]
+    assert imageio.get_reader(made[0]).count_frames() == 6 + 40  # the longer side, then the held last frame
+    assert (tmp_path / "out" / "all_episodes.mp4").exists()

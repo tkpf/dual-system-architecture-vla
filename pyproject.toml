@@ -15,4 +15,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 single_system = ["data/*.json"]
-dual_system = ["configs/*.yaml", "configs/conditions/*.yaml", "knowledge/profiles/*.yaml"]
+dual_system = ["configs/*.yaml", "configs/conditions/*.yaml", "knowledge/profiles/*.yaml", "finetune/*.yaml", "finetune/boundaries.jsonl"]

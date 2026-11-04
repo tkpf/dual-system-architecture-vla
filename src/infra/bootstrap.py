@@ -20,6 +20,7 @@ export CMAKE_POLICY_VERSION_MINIMUM=3.5
 pip install -q setuptools wheel
 pip install -q --no-build-isolation hf-egl-probe egl_probe
 pip install -q "lerobot[libero,smolvla]"
+pip install -q -U "torchao>0.16" peft  # peft refuses the torchao that Colab ships
 which lerobot-eval
 echo N | python -c "import libero.libero"
 """
@@ -47,6 +48,6 @@ def check_renderer() -> str:
     r = sh(f"{EGL_ENV}; python - <<'E'\n{code}\nE")
     out = r.stdout.strip()
     print(out, "(harmless EGL cleanup error at exit is expected)" if r.stderr else "")
-    if "Tesla" not in out:
-        print("WARNING: not the T4 renderer (llvmpipe is ~12x slower). Check /content/nvidia/gl and the env exports.")
+    if "llvmpipe" in out or not any(name in out for name in ("Tesla", "NVIDIA")):
+        print("WARNING: not the NVIDIA renderer (llvmpipe is ~12x slower). Check /content/nvidia/gl and the env exports.")
     return out

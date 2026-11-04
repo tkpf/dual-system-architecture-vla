@@ -5,8 +5,8 @@ from .base import System1
 
 
 def build_system1(cfg: dict) -> System1:
-    if cfg["type"] == "smolvla":
-        from .smolvla import SmolVLASystem1  # imports lerobot
+    if cfg["type"] in ("smolvla", "pi0", "pi05"):
+        from .lerobot_policy import LeRobotSystem1  # imports lerobot
 
-        return SmolVLASystem1(**{k: v for k, v in cfg.items() if k != "type"})
+        return LeRobotSystem1(pi_backbone=cfg["type"] != "smolvla", **{k: v for k, v in cfg.items() if k != "type"})
     raise ValueError(f"unknown system1 type: {cfg['type']}")

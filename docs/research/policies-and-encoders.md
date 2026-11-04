@@ -2,7 +2,7 @@
 
 Back to [RESEARCH.md](../RESEARCH.md).
 
-**Decision so far:** System 1 is SmolVLA. System 2 is still open, see [System 2: frozen VLM that emits atomic sentences](#system-2-frozen-vlm-that-emits-atomic-sentences) at the end of this page.
+**Decision so far:** System 1 is pi0.5 (`lerobot/pi05_libero_finetuned_v044`), which replaced SmolVLA after a direct comparison (see [EXPERIMENTS.md](../EXPERIMENTS.md)). System 2 is Qwen3-VL-2B for now, but it misreads the scene, and a perception benchmark is comparing alternatives. Background on System 2 is in [System 2: frozen VLM that emits atomic sentences](#system-2-frozen-vlm-that-emits-atomic-sentences) at the end of this page.
 
 ## Trainable low-level policies
 
@@ -13,7 +13,7 @@ Back to [RESEARCH.md](../RESEARCH.md).
 | MLP head on frozen features | n/a | Best for speed | Fastest to train and iterate; likely lower success on precise tasks. Useful as a minimal baseline |
 | SmolVLA | [pdf](../papers/2506.01844-smolvla.pdf) | Inference only | Small VLA built for LeRobot; documented on LIBERO. Fine-tuning needs a GPU. Candidate as an **external baseline** or as System 1 if a checkpoint is available |
 | OpenVLA | [pdf](../papers/2406.09246-openvla.pdf) | No | About 7B parameters. Reference for flat VLA numbers only |
-| pi0 / pi0.5 | [pi0](../papers/2410.24164-pi0.pdf), [pi0.5](../papers/2504.16054-pi05.pdf) | No for training | LeRobot hosts a finetuned pi0.5 LIBERO checkpoint (`lerobot/pi05_libero_finetuned`). pi0 is Hi Robot's System 1. See [Pretrained LIBERO VLAs as a frozen System 1](#pretrained-libero-vlas-as-a-frozen-system-1) |
+| pi0 / pi0.5 | [pi0](../papers/2410.24164-pi0.pdf), [pi0.5](../papers/2504.16054-pi05.pdf) | No for training | LeRobot hosts a finetuned pi0.5 LIBERO checkpoint (`lerobot/pi05_libero_finetuned_v044`). pi0 is Hi Robot's System 1. See [Pretrained LIBERO VLAs as a frozen System 1](#pretrained-libero-vlas-as-a-frozen-system-1) |
 
 ## Pretrained LIBERO VLAs as a frozen System 1
 
@@ -24,7 +24,7 @@ Success rates below: pi0.5 rows are from the LeRobot LIBERO docs and the OpenPI 
 | Model | Architecture | LIBERO (Spatial / Object / Goal / 10, avg) | Notes |
 |---|---|---|---|
 | pi0.5 (OpenPI `pi05_libero`) | PaliGemma 3B plus flow-matching action expert; co-training and discrete tokens in training | 98.8 / 98.2 / 98.0 / 92.4, avg 96.85 | Authors' numbers. JAX checkpoint, so run in openpi or convert to PyTorch (conversion unverified) |
-| pi0.5 (`lerobot/pi05_libero_finetuned`) | Same, plus 6k extra finetune steps by LeRobot | 97 / 99 / 98 / 96, avg 97.5 (10 episodes per suite) | Small sample, differences vs OpenPI are within noise. Reason for the extra steps not found; a `_v044` variant also exists, check which revision is loaded |
+| pi0.5 (`lerobot/pi05_libero_finetuned_v044`) | Same, plus 6k extra finetune steps by LeRobot | 97 / 99 / 98 / 96, avg 97.5 (10 episodes per suite) | Small sample, differences vs OpenPI are within noise. Reason for the extra steps not found. The name without `_v044` was not on the Hub |
 | pi0 (`pi0_libero`) | PaliGemma 3B plus flow-matching expert, 50-step chunks | about 96.8 / 98.8 / 95.8 / 85.2, avg about 94 (memory) | Hi Robot's actual System 1. Weaker on LIBERO-10, so more headroom for a System 2 ablation. LeRobot repo name unverified |
 | pi0-FAST | Same VLM, autoregressive DCT-compressed action tokens | avg about 85 (memory) | Lower. Not a candidate |
 | OpenVLA-OFT | 7B Llama-2, fused SigLIP and DINOv2, parallel decoding, action chunks, L1 head | avg about 97 (memory) | Heavy, GPU only |
@@ -42,6 +42,8 @@ pi0.5-DROID targets a Franka but uses real-world DROID cameras and a joint-space
 3. Compute: about 3B parameters, so CPU inference takes seconds per chunk. A GPU is needed at least for inference.
 
 **First experiment.** Run the candidate on a few LIBERO-10 tasks with correct, wrong and empty prompts. The success drop measures how much System 1 uses language and decides whether it is usable as a frozen System 1. Test pi0 and pi0.5 and pick the one whose success responds to the prompt.
+
+**What was found (2026-11-01).** On scheduled atomic commands from shifted starts, pi0.5 reached the goal in 5/12 episodes and SmolVLA in 0/12. Risk 2 above still applies: pi0.5 sometimes finished a task under a command that meant something else, and no gibberish control has been run on it. The first-experiment comparison of pi0 was not run. Details are in [EXPERIMENTS.md](../EXPERIMENTS.md).
 
 **Fallbacks.** On CPU only: SmolVLA (frozen backbone, trained action expert) or ACT on cached features.
 
@@ -93,6 +95,8 @@ Sizes, benchmark numbers and release details below come from web search snippets
 1. **Decompose** the instruction into atomic steps (once per episode, or re-planned).
 2. **Track progress**: decide from the current frame whether the current step is finished. This is the harder part. A plan-once VLM with a fixed step budget is a fallback.
 3. **Stay in System 1's vocabulary.** SmolVLA was finetuned on LIBERO instructions, so sentences far from that phrasing may be ignored or misread. Which LIBERO data the SmolVLA checkpoint was trained on, and whether atomic sub-sentences such as "put the bowl on the plate" occur in it, is *not yet checked*. Check this first, because it decides how much of the VLM's freedom is usable.
+
+**Measured limitation.** On 2026-11-01, Qwen3-VL-2B misread frames even with explicit finish conditions: it called a glowing red burner dark and a held bowl on the table. See [EXPERIMENTS.md](../EXPERIMENTS.md).
 
 ### Candidates
 

@@ -1,4 +1,4 @@
-"""python -m infra install | egl | check | status [res] | start <name> <cmd...> | stop <name> | log <name> | drive [res] [run]
+"""python -m infra install | egl | check | newrun | status [res] | start <name> <cmd...> | stop <name> | log <name> | drive [res]
 
 status prints compact JSON and never prints progress bars, so polling from a cell stays cheap.
 """
@@ -10,10 +10,11 @@ import sys
 from . import bootstrap, jobs, sync
 
 
-def status(res_dir: str = "/content/res") -> dict:
+def status(res_dir: str | None = None) -> dict:
+    res_dir = res_dir or sync.latest_run_dir()
     mem = bootstrap.sh("nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader").stdout.strip()
     ram = bootstrap.sh("free -g | awk '/Mem:/{print $3\"/\"$2\" GB\"}'").stdout.strip()
-    return dict(jobs={k: v["alive"] for k, v in jobs.list_jobs().items()}, results=sync.counts(res_dir), gpu=mem, ram=ram,
+    return dict(jobs={k: v["alive"] for k, v in jobs.list_jobs().items()}, res=res_dir, results=sync.counts(res_dir), gpu=mem, ram=ram,
                 vcpus=bootstrap.sh("nproc").stdout.strip())
 
 
@@ -25,6 +26,8 @@ def main(argv: list[str]) -> None:
         bootstrap.extract_egl()
     elif cmd == "check":
         bootstrap.check_renderer()
+    elif cmd == "newrun":
+        print(sync.new_run_dir())
     elif cmd == "status":
         print(json.dumps(status(*argv[1:])))
     elif cmd == "start":
